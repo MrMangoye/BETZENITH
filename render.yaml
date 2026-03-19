@@ -8,7 +8,7 @@ services:
     startCommand: node server.js
     envVars:
       - key: MONGODB_URI
-        value: mongodb+srv://betzenith_db_user:YOUR_NEW_PASSWORD@betzenith.hr5pype.mongodb.net/?appName=BETZENITH
+        value: mongodb+srv://betzenith_db_user:UTjvL9bpzfNvllJb@betzenith.hr5pype.mongodb.net/?appName=BETZENITH
       - key: JWT_SECRET
         value: your_super_secret_jwt_key_change_this_in_production
       - key: JWT_EXPIRE
