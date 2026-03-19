@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: betzenith
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: MONGODB_URI
+        value: mongodb+srv://betzenith_db_user:YOUR_NEW_PASSWORD@betzenith.hr5pype.mongodb.net/?appName=BETZENITH
+      - key: JWT_SECRET
+        value: your_super_secret_jwt_key_change_this_in_production
+      - key: JWT_EXPIRE
+        value: 30d
+      - key: PORT
+        value: 5000
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        value: https://betzenith-client.vercel.app
+      - key: RATE_LIMIT_WINDOW
+        value: "15"
+      - key: RATE_LIMIT_MAX
+        value: "100"
+      - key: SPORTMONKS_KEY
+        value: y9B1DVcqUPlSgOx7Omq1sC2OGlJuGDZ7gsjnED1uuGFDEeSa8awR50wHfoth
+      - key: ODDS_API_KEY
+        value: 3204d7545d2a97b99921fba3258ae18d
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_SECURE
+        value: "false"
+      - key: EMAIL_USER
+        value: benjaminjuma512@gmail.com
+      - key: EMAIL_PASS
+        value: sxfoeidoajgchdwg
+      - key: EMAIL_FROM
+        value: noreply@betzenith.com
+      - key: DEFAULT_CURRENCY
+        value: KSH
+      - key: MINIMUM_DEPOSIT
+        value: "100"
+      - key: MAXIMUM_DEPOSIT
+        value: "10000000000"
+      - key: MINIMUM_WITHDRAWAL
+        value: "100"
+      - key: MAXIMUM_WITHDRAWAL
+        value: "10000000000"
+      - key: MINIMUM_BET
+        value: "1"
+      - key: MAXIMUM_BET
+        value: "100000000000"
+      - key: LIVE_UPDATE_INTERVAL
+        value: "30"
