@@ -1,4 +1,3 @@
-// src/context/BetSlipContext.jsx
 import { createContext, useState, useContext, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
@@ -15,6 +14,7 @@ export const BetSlipProvider = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [totalStake, setTotalStake] = useState(0);
   const [potentialWin, setPotentialWin] = useState(0);
+  const [betHistory, setBetHistory] = useState([]);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -25,6 +25,16 @@ export const BetSlipProvider = ({ children }) => {
         setSelections(parsed);
       } catch (e) {
         console.error('Failed to load bet slip');
+      }
+    }
+    
+    const savedHistory = localStorage.getItem('betHistory');
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory);
+        setBetHistory(parsed);
+      } catch (e) {
+        console.error('Failed to load bet history');
       }
     }
   }, []);
@@ -41,6 +51,11 @@ export const BetSlipProvider = ({ children }) => {
     setPotentialWin(stake * odds);
   }, [selections]);
 
+  // Save bet history
+  useEffect(() => {
+    localStorage.setItem('betHistory', JSON.stringify(betHistory));
+  }, [betHistory]);
+
   const addToBetSlip = (selection) => {
     setSelections(prev => {
       // Check if already exists
@@ -48,7 +63,7 @@ export const BetSlipProvider = ({ children }) => {
         s._id === selection._id &&
         s.selectedMarket?.index === selection.selectedMarket?.index
       );
-
+      
       if (exists) {
         toast.error('Selection already in bet slip');
         return prev;
@@ -66,9 +81,15 @@ export const BetSlipProvider = ({ children }) => {
         return prev;
       }
 
-      toast.success('Added to bet slip');
+      // Check if match is live and has started
+      if (selection.status === 'LIVE' || selection.status === 'FIRST_HALF' || selection.status === 'SECOND_HALF') {
+        // Can still bet on live matches, but show warning
+        toast.success('Added to bet slip (Live betting)');
+      } else {
+        toast.success('Added to bet slip');
+      }
+      
       setIsOpen(true);
-
       return [...prev, {
         ...selection,
         stake: 0,
@@ -125,6 +146,15 @@ export const BetSlipProvider = ({ children }) => {
     );
   };
 
+  const addToBetHistory = (bet) => {
+    setBetHistory(prev => [bet, ...prev].slice(0, 50)); // Keep last 50 bets
+  };
+
+  const clearBetHistory = () => {
+    setBetHistory([]);
+    localStorage.removeItem('betHistory');
+  };
+
   return (
     <BetSlipContext.Provider value={{
       selections,
@@ -132,12 +162,15 @@ export const BetSlipProvider = ({ children }) => {
       setIsOpen,
       totalStake,
       potentialWin,
+      betHistory,
       addToBetSlip,
       removeFromBetSlip,
       updateStake,
       updateOdds,
       clearBetSlip,
       getTotalOdds,
+      addToBetHistory,
+      clearBetHistory,
       selectionCount: selections.length
     }}>
       {children}

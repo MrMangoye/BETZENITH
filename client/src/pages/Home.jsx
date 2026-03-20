@@ -173,37 +173,37 @@ export default function Home() {
     {
       name: 'EPL',
       count: 20,
-      icon: <img src="https://media.api-sports.io/football/leagues/39.png" alt="EPL" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/39.png" alt="EPL" className="w-full h-full object-contain" />
     },
     {
       name: 'UEFA Champions League',
       count: 21,
-      icon: <img src="https://media.api-sports.io/football/leagues/2.png" alt="Champions League" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/2.png" alt="Champions League" className="w-full h-full object-contain" />
     },
     {
       name: 'UEFA Europa League',
       count: 24,
-      icon: <img src="https://media.api-sports.io/football/leagues/3.png" alt="Europa League" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/3.png" alt="Europa League" className="w-full h-full object-contain" />
     },
     {
       name: 'La Liga - Spain',
       count: 20,
-      icon: <img src="https://media.api-sports.io/football/leagues/140.png" alt="La Liga" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/140.png" alt="La Liga" className="w-full h-full object-contain" />
     },
     {
       name: 'Championship',
       count: 24,
-      icon: <img src="https://media.api-sports.io/football/leagues/40.png" alt="Championship" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/40.png" alt="Championship" className="w-full h-full object-contain" />
     },
     {
       name: 'Serie A - Italy',
       count: 19,
-      icon: <img src="https://media.api-sports.io/football/leagues/135.png" alt="Serie A" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/135.png" alt="Serie A" className="w-full h-full object-contain" />
     },
     {
       name: 'Bundesliga - Germany',
       count: 20,
-      icon: <img src="https://media.api-sports.io/football/leagues/78.png" alt="Bundesliga" className="w-4/5 h-4/5 object-contain" />
+      icon: <img src="https://media.api-sports.io/football/leagues/78.png" alt="Bundesliga" className="w-full h-full object-contain" />
     },
   ];
 
@@ -377,7 +377,7 @@ export default function Home() {
 
       {/* Main Content Area - DIRECT CHILD, NO MAIN ELEMENT */}
       <div className="container mx-auto px-4 py-8">
-        {/* Top Leagues - with SHARP inner corners - UPDATED border to Betika green */}
+        {/* Top Leagues - GREEN MARGIN REDUCED WITH SHARP EDGES */}
         <div className="bg-[#0f1219] rounded-lg border border-[#2a3042] p-5 mb-5 relative max-w-5xl mx-auto">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-white font-semibold">Top Leagues</h2>
@@ -419,14 +419,16 @@ export default function Home() {
                   aspectRatio: '1/1'
                 }}
               >
-                {/* Inner white container - SHARP CORNERS (rounded-none) */}
-                <div className="absolute inset-0 m-[0] bg-white rounded-none flex items-center justify-center overflow-hidden">
-                  <div className="w-3/4 h-3/4 flex items-center justify-center transition-transform duration-300 hover:scale-125">
+                {/* Inner white container - LOGOS AND WHITE CONTAINER STAY EXACTLY WHERE THEY WERE */}
+                <div className="absolute inset-x-0 top-[-12px] bottom-[20px] m-[0] bg-white rounded-none flex items-end justify-center overflow-hidden">
+                  <div className="w-full h-full flex items-center justify-center transition-transform duration-300 hover:scale-125">
                     {league.icon}
                   </div>
                 </div>
-                {/* League name at bottom of green margin */}
-                <span className="absolute bottom-[-8px] left-0 right-0 text-center text-xs text-white font-medium line-clamp-1 px-1 bg-transparent">
+                {/* Green margin - REDUCED with SHARP EDGES (no rounded corners) */}
+                <div className="absolute inset-x-0 bottom-[-8px] h-[25px] bg-[#2e7d32]"></div>
+                {/* League name - positioned on top of green margin */}
+                <span className="absolute bottom-[-8px] left-0 right-0 text-center text-xs text-white font-medium line-clamp-1 px-1 z-10">
                   {league.name}
                 </span>
               </div>
@@ -434,7 +436,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Royal Hots - with SHARP inner corners - UPDATED border to Betika green */}
+        {/* Royal Hots - SAME GREEN MARGIN REDUCED WITH SHARP EDGES */}
         <div className="bg-[#0f1219] rounded-lg border border-[#2a3042] p-5 mb-5 relative max-w-5xl mx-auto">
           <h2 className="text-white font-semibold mb-4 flex items-center">
             <span className="w-1 h-5 bg-[#2e7d32] rounded-full mr-3"></span>
@@ -480,8 +482,10 @@ export default function Home() {
                       </span>
                     </div>
                   </div>
-                  {/* Game name at bottom of green margin */}
-                  <span className="absolute bottom-[-8px] left-0 right-0 text-center text-xs text-white font-medium px-1 bg-transparent">
+                  {/* Green margin - SAME REDUCED with SHARP EDGES */}
+                  <div className="absolute inset-x-0 bottom-[-8px] h-[25px] bg-[#2e7d32]"></div>
+                  {/* Game name - positioned on top of green margin */}
+                  <span className="absolute bottom-[-8px] left-0 right-0 text-center text-xs text-white font-medium px-1 z-10">
                     {game.name}
                   </span>
                 </div>
@@ -507,8 +511,10 @@ export default function Home() {
                       </span>
                     </div>
                   </div>
-                  {/* Game name at bottom of green margin */}
-                  <span className="absolute bottom-[-8px] left-0 right-0 text-center text-xs text-white font-medium px-1 bg-transparent">
+                  {/* Green margin - SAME REDUCED with SHARP EDGES */}
+                  <div className="absolute inset-x-0 bottom-[-8px] h-[25px] bg-[#2e7d32]"></div>
+                  {/* Game name - positioned on top of green margin */}
+                  <span className="absolute bottom-[-8px] left-0 right-0 text-center text-xs text-white font-medium px-1 z-10">
                     {game.name}
                   </span>
                 </div>
