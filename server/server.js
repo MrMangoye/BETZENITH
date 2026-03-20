@@ -49,9 +49,31 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// ============ CORS ============
+// ============ CORS - UPDATED TO ACCEPT ALL VERCEL PROJECTS ============
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://betzenith.vercel.app',
+  'https://betzenith-client.vercel.app',
+  'https://betzenith-u8ji.vercel.app',
+  'https://betzenith-odux.vercel.app',
+  'https://betzenith-9dx1.onrender.com', // Backend itself
+  process.env.CLIENT_URL // From environment variable
+].filter(Boolean); // Remove any undefined values
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      console.log('❌ CORS blocked for origin:', origin);
+      console.log('✅ Allowed origins:', allowedOrigins);
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true,
   exposedHeaders: ['Authorization']
 }));
@@ -157,7 +179,9 @@ io.on('connection', (socket) => {
 // ============ DATABASE CONNECTION ============
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000, // Add timeout for better error handling
+  socketTimeoutMS: 45000,
 })
   .then(() => {
     console.log('✅ MongoDB connected successfully');
@@ -213,7 +237,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/live', require('./routes/live'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/kyc', require('./routes/kyc'));
-app.use('/api/odds', require('./routes/odds')); // ADDED ODDS ROUTE
+app.use('/api/odds', require('./routes/odds'));
 
 // ============ HEALTH CHECK ============
 app.get('/health', (req, res) => {
@@ -223,7 +247,8 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     environment: process.env.NODE_ENV,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    onlineUsers: onlineUsers.size
+    onlineUsers: onlineUsers.size,
+    corsAllowedOrigins: allowedOrigins // Helpful for debugging
   });
 });
 
@@ -258,4 +283,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 Client URL: ${process.env.CLIENT_URL}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+  console.log('✅ CORS allowed origins:', allowedOrigins);
 });
