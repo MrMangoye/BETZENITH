@@ -181,42 +181,20 @@ const TEAMS = {
     { name: 'Montpellier', abbr: 'MPL' }, { name: 'Nantes', abbr: 'NAN' }, { name: 'Reims', abbr: 'REI' },
     { name: 'Toulouse', abbr: 'TLS' }, { name: 'Brest', abbr: 'BRE' }, { name: 'Clermont', abbr: 'CLE' },
     { name: 'Lorient', abbr: 'LOR' }, { name: 'Metz', abbr: 'MET' }, { name: 'Le Havre', abbr: 'LEH' }
-  ],
-  'Champions League': [
-    { name: 'Real Madrid', abbr: 'RMA' }, { name: 'Manchester City', abbr: 'MCI' }, { name: 'Bayern Munich', abbr: 'BAY' },
-    { name: 'PSG', abbr: 'PSG' }, { name: 'Liverpool', abbr: 'LIV' }, { name: 'Inter Milan', abbr: 'INT' },
-    { name: 'Barcelona', abbr: 'BAR' }, { name: 'Arsenal', abbr: 'ARS' }, { name: 'Atletico Madrid', abbr: 'ATM' },
-    { name: 'Borussia Dortmund', abbr: 'DOR' }, { name: 'RB Leipzig', abbr: 'RBL' }, { name: 'Napoli', abbr: 'NAP' }
-  ],
-  'NBA': [
-    { name: 'LA Lakers', abbr: 'LAL' }, { name: 'Golden State Warriors', abbr: 'GSW' }, { name: 'Boston Celtics', abbr: 'BOS' },
-    { name: 'Miami Heat', abbr: 'MIA' }, { name: 'Milwaukee Bucks', abbr: 'MIL' }, { name: 'Philadelphia 76ers', abbr: 'PHI' },
-    { name: 'Phoenix Suns', abbr: 'PHX' }, { name: 'Denver Nuggets', abbr: 'DEN' }, { name: 'LA Clippers', abbr: 'LAC' },
-    { name: 'Dallas Mavericks', abbr: 'DAL' }, { name: 'New York Knicks', abbr: 'NYK' }, { name: 'Chicago Bulls', abbr: 'CHI' }
-  ],
-  'NFL': [
-    { name: 'Kansas City Chiefs', abbr: 'KC' }, { name: 'San Francisco 49ers', abbr: 'SF' }, { name: 'Baltimore Ravens', abbr: 'BAL' },
-    { name: 'Buffalo Bills', abbr: 'BUF' }, { name: 'Philadelphia Eagles', abbr: 'PHI' }, { name: 'Dallas Cowboys', abbr: 'DAL' },
-    { name: 'Miami Dolphins', abbr: 'MIA' }, { name: 'Detroit Lions', abbr: 'DET' }, { name: 'Cincinnati Bengals', abbr: 'CIN' }
-  ],
-  'UFC': [
-    { name: 'Jon Jones', abbr: 'JON' }, { name: 'Islam Makhachev', abbr: 'MAK' }, { name: 'Alexander Volkanovski', abbr: 'VOL' },
-    { name: 'Leon Edwards', abbr: 'EDW' }, { name: 'Israel Adesanya', abbr: 'ADE' }, { name: 'Alex Pereira', abbr: 'PER' },
-    { name: 'Sean O\'Malley', abbr: 'OMA' }, { name: 'Charles Oliveira', abbr: 'OLI' }, { name: 'Justin Gaethje', abbr: 'GAE' }
   ]
 };
 
 // Add default teams for leagues without specific team data
 const getDefaultTeams = (leagueName) => {
   return [
-    { name: `${leagueName} Team 1`, abbr: 'TM1' },
-    { name: `${leagueName} Team 2`, abbr: 'TM2' },
-    { name: `${leagueName} Team 3`, abbr: 'TM3' },
-    { name: `${leagueName} Team 4`, abbr: 'TM4' },
-    { name: `${leagueName} Team 5`, abbr: 'TM5' },
-    { name: `${leagueName} Team 6`, abbr: 'TM6' },
-    { name: `${leagueName} Team 7`, abbr: 'TM7' },
-    { name: `${leagueName} Team 8`, abbr: 'TM8' }
+    { name: `${leagueName} Team 1`, abbr: `${leagueName.substring(0, 3).toUpperCase()}1` },
+    { name: `${leagueName} Team 2`, abbr: `${leagueName.substring(0, 3).toUpperCase()}2` },
+    { name: `${leagueName} Team 3`, abbr: `${leagueName.substring(0, 3).toUpperCase()}3` },
+    { name: `${leagueName} Team 4`, abbr: `${leagueName.substring(0, 3).toUpperCase()}4` },
+    { name: `${leagueName} Team 5`, abbr: `${leagueName.substring(0, 3).toUpperCase()}5` },
+    { name: `${leagueName} Team 6`, abbr: `${leagueName.substring(0, 3).toUpperCase()}6` },
+    { name: `${leagueName} Team 7`, abbr: `${leagueName.substring(0, 3).toUpperCase()}7` },
+    { name: `${leagueName} Team 8`, abbr: `${leagueName.substring(0, 3).toUpperCase()}8` }
   ];
 };
 
@@ -231,7 +209,6 @@ const generateMatchDate = (league, status) => {
   switch(status) {
     case 'LIVE':
     case 'FIRST_HALF':
-    case 'HALFTIME':
     case 'SECOND_HALF':
       matchDate.setHours(now.getHours() - randomInt(0, 2));
       matchDate.setMinutes(randomInt(0, 59));
@@ -273,6 +250,7 @@ const generateOdds = (sport) => {
   };
 };
 
+// ============ UPDATED: Generate Markets with Valid Enum Values ============
 const generateMarkets = (sport, odds) => {
   const markets = [
     { name: '1', odds: odds.home, isActive: true },
@@ -280,16 +258,17 @@ const generateMarkets = (sport, odds) => {
     { name: '2', odds: odds.away, isActive: true },
   ];
   
+  // Only add extra markets for soccer (using valid enum names)
   if (sport === 'soccer') {
     markets.push(
-      { name: 'O 2.5', odds: 1.95, isActive: true },
-      { name: 'U 2.5', odds: 1.95, isActive: true },
+      { name: 'Over 2.5', odds: 1.95, isActive: true },
+      { name: 'Under 2.5', odds: 1.95, isActive: true },
       { name: 'BTTS', odds: 1.90, isActive: true }
     );
   } else if (sport === 'basketball') {
     markets.push(
-      { name: 'O 220.5', odds: 1.90, isActive: true },
-      { name: 'U 220.5', odds: 1.90, isActive: true }
+      { name: 'Over 220.5', odds: 1.90, isActive: true },
+      { name: 'Under 220.5', odds: 1.90, isActive: true }
     );
   }
   

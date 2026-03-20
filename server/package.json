@@ -9,7 +9,8 @@
     "seed": "node seed/production-seed.js",
     "seed:matches": "node seed/matches.js",
     "seed:enhanced": "node seed/enhanced-seed.js",
-    "seed:all": "npm run seed:enhanced",
+    "seed:complete": "node seed/complete-seed.js",
+    "seed:all": "npm run seed:complete",
     "test": "node test-full-system.js",
     "test:api": "node test-odds-api.js && node test-sportmonks.js",
     "test:betting": "node test-betting.js"
