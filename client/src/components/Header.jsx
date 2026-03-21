@@ -31,7 +31,6 @@ export default function Header() {
     if (isAuthenticated && user) {
       fetchBalance();
       
-      // Listen for balance update events
       const handleBalanceUpdate = (event) => {
         if (event.detail && event.detail.newBalance !== undefined) {
           setBalance(event.detail.newBalance);
@@ -81,23 +80,23 @@ export default function Header() {
     <header className="bg-[#0f1219] border-b border-[#2a3042] sticky top-0 z-50 ml-64">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-20">
-          {/* Logo */}
+          {/* Logo - BETZENITH */}
           <Link to="/" className="flex items-center space-x-2 group">
             <span className="text-2xl font-bold text-white">
-              BET<span className="text-[#00b3b3] group-hover:text-[#00cccc] transition-colors">FUSION</span>
+              BET<span className="text-[#2e7d32] group-hover:text-[#3e9142] transition-colors">ZENITH</span>
             </span>
-            <span className="text-xs bg-[#00b3b3]/10 text-[#00b3b3] px-2 py-1 rounded-full">PREMIUM</span>
+            <span className="text-xs bg-[#2e7d32]/10 text-[#2e7d32] px-2 py-1 rounded-full">PREMIUM</span>
           </Link>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-8">
-            <Link to="/" className="text-gray-300 hover:text-[#00b3b3] transition-colors text-sm font-medium">
+            <Link to="/" className="text-gray-300 hover:text-[#2e7d32] transition-colors text-sm font-medium">
               Homepage
             </Link>
-            <Link to="/pre-match" className="text-gray-300 hover:text-[#00b3b3] transition-colors text-sm font-medium">
+            <Link to="/pre-match" className="text-gray-300 hover:text-[#2e7d32] transition-colors text-sm font-medium">
               Pre-match
             </Link>
-            <Link to="/live" className="text-gray-300 hover:text-[#00b3b3] transition-colors text-sm font-medium relative">
+            <Link to="/live" className="text-gray-300 hover:text-[#2e7d32] transition-colors text-sm font-medium relative">
               Live
               <span className="absolute -top-1 -right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             </Link>
@@ -105,7 +104,7 @@ export default function Header() {
             {/* Theme Toggle Button */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg bg-[#1a1f2e] border border-[#2a3042] hover:border-[#00b3b3] transition-colors"
+              className="p-2 rounded-lg bg-[#1a1f2e] border border-[#2a3042] hover:border-[#2e7d32] transition-colors"
               aria-label="Toggle theme"
             >
               {isDarkMode ? (
@@ -117,9 +116,9 @@ export default function Header() {
 
             {isAuthenticated ? (
               <div className="flex items-center space-x-4">
-                {/* Balance - Dynamic */}
+                {/* Balance */}
                 <div className="flex items-center space-x-2 bg-[#1a1f2e] px-4 py-2 rounded-lg border border-[#2a3042]">
-                  <FiDollarSign className="text-[#00b3b3]" />
+                  <FiDollarSign className="text-[#2e7d32]" />
                   <span className="text-white font-bold">KSh {balance.toLocaleString()}</span>
                 </div>
                 
@@ -127,10 +126,10 @@ export default function Header() {
                 <div className="relative">
                   <button
                     onClick={() => setIsProfileOpen(!isProfileOpen)}
-                    className="flex items-center space-x-3 bg-[#1a1f2e] px-4 py-2 rounded-lg border border-[#2a3042] hover:border-[#00b3b3]/50 transition-colors"
+                    className="flex items-center space-x-3 bg-[#1a1f2e] px-4 py-2 rounded-lg border border-[#2a3042] hover:border-[#2e7d32]/50 transition-colors"
                   >
-                    <div className="w-8 h-8 bg-[#00b3b3]/20 rounded-full flex items-center justify-center">
-                      <FiUser className="text-[#00b3b3]" />
+                    <div className="w-8 h-8 bg-[#2e7d32]/20 rounded-full flex items-center justify-center">
+                      <FiUser className="text-[#2e7d32]" />
                     </div>
                     <span className="text-white text-sm">{user?.username}</span>
                   </button>
@@ -140,6 +139,7 @@ export default function Header() {
                       <div className="p-4 border-b border-[#2a3042]">
                         <p className="text-white font-semibold">{user?.username}</p>
                         <p className="text-xs text-gray-500">{user?.email}</p>
+                        <p className="text-xs text-[#2e7d32] mt-1 font-bold">Balance: KSh {balance.toLocaleString()}</p>
                       </div>
                       <div className="p-2">
                         <Link
@@ -194,7 +194,7 @@ export default function Header() {
                 {/* Bet Slip Counter */}
                 {selectionCount > 0 && (
                   <Link to="/bet-slip" className="relative">
-                    <div className="bg-[#00b3b3] text-white px-3 py-2 rounded-lg flex items-center space-x-2">
+                    <div className="bg-[#2e7d32] text-white px-3 py-2 rounded-lg flex items-center space-x-2">
                       <FiTrendingUp />
                       <span className="font-bold">{selectionCount}</span>
                     </div>
@@ -206,7 +206,7 @@ export default function Header() {
               <div className="flex items-center space-x-4">
                 <Link
                   to="/login"
-                  className="px-6 py-2 border border-[#2a3042] text-gray-300 rounded-lg hover:border-[#00b3b3] hover:text-white transition-colors"
+                  className="px-6 py-2 border border-[#2a3042] text-gray-300 rounded-lg hover:border-[#2e7d32] hover:text-white transition-colors"
                 >
                   Login
                 </Link>
@@ -217,7 +217,7 @@ export default function Header() {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden text-gray-300 hover:text-[#00b3b3] transition-colors"
+            className="md:hidden text-gray-300 hover:text-[#2e7d32] transition-colors"
           >
             {isMenuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
           </button>
@@ -229,21 +229,21 @@ export default function Header() {
             <nav className="flex flex-col space-y-2">
               <Link
                 to="/"
-                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
                 Homepage
               </Link>
               <Link
                 to="/pre-match"
-                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
                 Pre-match
               </Link>
               <Link
                 to="/live"
-                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors flex items-center justify-between"
+                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors flex items-center justify-between"
                 onClick={() => setIsMenuOpen(false)}
               >
                 <span>Live</span>
@@ -253,7 +253,7 @@ export default function Header() {
               {/* Mobile Theme Toggle */}
               <button
                 onClick={toggleTheme}
-                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors flex items-center space-x-2"
+                className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors flex items-center space-x-2"
               >
                 {isDarkMode ? (
                   <>
@@ -272,32 +272,32 @@ export default function Header() {
                 <>
                   <div className="px-4 py-3 bg-[#1a1f2e] rounded-lg border border-[#2a3042]">
                     <p className="text-white font-semibold">{user?.username}</p>
-                    <p className="text-sm text-green-400 font-bold">Balance: KSh {balance.toLocaleString()}</p>
+                    <p className="text-sm text-[#2e7d32] font-bold">Balance: KSh {balance.toLocaleString()}</p>
                   </div>
                   <Link
                     to="/dashboard"
-                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Dashboard
                   </Link>
                   <Link
                     to="/favorites"
-                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Favorites
                   </Link>
                   <Link
                     to="/my-bets"
-                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     My Bets
                   </Link>
                   <Link
                     to="/analytics"
-                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                    className="px-4 py-3 text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Analytics
@@ -311,7 +311,7 @@ export default function Header() {
                   </Link>
                   <button
                     onClick={handleLogout}
-                    className="px-4 py-3 text-left text-gray-300 hover:bg-[#1a1f2e] hover:text-[#00b3b3] rounded-lg transition-colors"
+                    className="px-4 py-3 text-left text-gray-300 hover:bg-[#1a1f2e] hover:text-[#2e7d32] rounded-lg transition-colors"
                   >
                     Logout
                   </button>
@@ -320,7 +320,7 @@ export default function Header() {
                 <div className="flex flex-col space-y-2 pt-2">
                   <Link
                     to="/login"
-                    className="px-4 py-3 border border-[#2a3042] text-gray-300 rounded-lg text-center hover:border-[#00b3b3] hover:text-white transition-colors"
+                    className="px-4 py-3 border border-[#2a3042] text-gray-300 rounded-lg text-center hover:border-[#2e7d32] hover:text-white transition-colors"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Login

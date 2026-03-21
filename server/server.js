@@ -266,7 +266,12 @@ app.use('/api/kyc', require('./routes/kyc'));
 app.use('/api/odds', require('./routes/odds'));
 // Add after your other routes
 app.use('/api/ai', require('./routes/ai'));
+// Add after other routes
+app.use('/api/ai-matches', require('./routes/aiMatches'));
 
+// Start the AI Match Service
+const aiMatchService = require('./services/aiMatchService');
+aiMatchService.start();
 // ============ DEBUG ROUTES ============
 app.get('/debug-routes', (req, res) => {
   try {

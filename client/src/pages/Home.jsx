@@ -1,4 +1,5 @@
 // src/pages/Home.jsx
+import axios from 'axios';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -122,23 +123,51 @@ export default function Home() {
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
+  // Match section states
+  const [liveMatches, setLiveMatches] = useState([]);
+  const [upcomingMatches, setUpcomingMatches] = useState([]);
+  const [finishedMatches, setFinishedMatches] = useState([]);
+  const [selectedMatchType, setSelectedMatchType] = useState('live');
+
   // Refs for horizontal scrolling
   const topLeaguesScrollRef = useRef(null);
   const royalHotsScrollRef = useRef(null);
 
   useEffect(() => {
     loadMatches();
+    fetchMatchesByType();
     
     // Disable overscroll behavior on the whole page
     document.body.style.overscrollBehavior = 'none';
     document.documentElement.style.overscrollBehavior = 'none';
     
+    // Refresh matches every 30 seconds
+    const interval = setInterval(fetchMatchesByType, 30000);
+    
     // Cleanup function to restore overscroll when component unmounts
     return () => {
       document.body.style.overscrollBehavior = '';
       document.documentElement.style.overscrollBehavior = '';
+      clearInterval(interval);
     };
   }, []);
+
+  // Fetch matches by type (Live, Upcoming, Finished)
+  const fetchMatchesByType = async () => {
+    try {
+      const [liveRes, upcomingRes, finishedRes] = await Promise.all([
+        axios.get('/api/ai-matches/live').catch(() => ({ data: { data: [] } })),
+        axios.get('/api/ai-matches/upcoming').catch(() => ({ data: { data: [] } })),
+        axios.get('/api/ai-matches/finished').catch(() => ({ data: { data: [] } }))
+      ]);
+      
+      setLiveMatches(liveRes.data.data || []);
+      setUpcomingMatches(upcomingRes.data.data || []);
+      setFinishedMatches(finishedRes.data.data || []);
+    } catch (error) {
+      console.error('Error fetching matches by type:', error);
+    }
+  };
 
   const loadMatches = async () => {
     try {
@@ -620,7 +649,7 @@ export default function Home() {
         </div>
 
         {/* Live Sports Panel - UPDATED accent color to Betika green */}
-        <div className="bg-[#0f1219] rounded-lg border border-[#2a3042] p-5 max-w-5xl mx-auto">
+        <div className="bg-[#0f1219] rounded-lg border border-[#2a3042] p-5 max-w-5xl mx-auto mb-8">
           <h3 className="text-white font-semibold mb-4 flex items-center">
             <span className="w-1 h-5 bg-[#2e7d32] rounded-full mr-3"></span>
             LiveSports
@@ -657,6 +686,76 @@ export default function Home() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Match Sections - Live, Upcoming, Finished */}
+        <div className="max-w-5xl mx-auto mt-4">
+          {/* Match Type Tabs */}
+          <div className="flex space-x-2 mb-4 bg-[#0f1219] p-2 rounded-lg border border-[#2a3042]">
+            <button
+              onClick={() => setSelectedMatchType('live')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedMatchType === 'live'
+                  ? 'bg-[#2e7d32] text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1a1f2e]'
+              }`}
+            >
+              🔴 LIVE ({liveMatches.length})
+            </button>
+            <button
+              onClick={() => setSelectedMatchType('upcoming')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedMatchType === 'upcoming'
+                  ? 'bg-[#2e7d32] text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1a1f2e]'
+              }`}
+            >
+              📅 UPCOMING ({upcomingMatches.length})
+            </button>
+            <button
+              onClick={() => setSelectedMatchType('finished')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedMatchType === 'finished'
+                  ? 'bg-[#2e7d32] text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1a1f2e]'
+              }`}
+            >
+              🏁 FINISHED ({finishedMatches.length})
+            </button>
+          </div>
+
+          {/* Match Cards */}
+          <div className="space-y-4">
+            {selectedMatchType === 'live' && liveMatches.length === 0 && (
+              <div className="bg-[#1a1f2e] rounded-lg p-8 text-center border border-[#2a3042]">
+                <p className="text-gray-400">No live matches at the moment</p>
+                <p className="text-xs text-gray-500 mt-2">Check back soon for live action!</p>
+              </div>
+            )}
+            {selectedMatchType === 'live' && liveMatches.map(match => (
+              <MatchCard key={match._id} match={match} />
+            ))}
+            
+            {selectedMatchType === 'upcoming' && upcomingMatches.length === 0 && (
+              <div className="bg-[#1a1f2e] rounded-lg p-8 text-center border border-[#2a3042]">
+                <p className="text-gray-400">No upcoming matches scheduled</p>
+                <p className="text-xs text-gray-500 mt-2">New matches will appear here soon</p>
+              </div>
+            )}
+            {selectedMatchType === 'upcoming' && upcomingMatches.map(match => (
+              <MatchCard key={match._id} match={match} />
+            ))}
+            
+            {selectedMatchType === 'finished' && finishedMatches.length === 0 && (
+              <div className="bg-[#1a1f2e] rounded-lg p-8 text-center border border-[#2a3042]">
+                <p className="text-gray-400">No finished matches</p>
+                <p className="text-xs text-gray-500 mt-2">Check back after matches are completed</p>
+              </div>
+            )}
+            {selectedMatchType === 'finished' && finishedMatches.map(match => (
+              <MatchCard key={match._id} match={match} />
+            ))}
           </div>
         </div>
       </div>

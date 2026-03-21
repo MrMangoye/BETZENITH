@@ -1,13 +1,73 @@
-// src/components/MatchCard.jsx
 import { useState } from 'react';
 import { useBetSlip } from '../context/BetSlipContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
+// AI Prediction Badge Component
+const AIPredictionBadge = ({ prediction, homeTeam, awayTeam }) => {
+  if (!prediction) return null;
+  
+  const getPredictionColor = (winner) => {
+    if (winner === 'HOME') return 'text-green-400 bg-green-500/10 border-green-500/30';
+    if (winner === 'AWAY') return 'text-orange-400 bg-orange-500/10 border-orange-500/30';
+    return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
+  };
+  
+  const getPredictionText = (winner) => {
+    if (winner === 'HOME') return `${homeTeam.name} to win`;
+    if (winner === 'AWAY') return `${awayTeam.name} to win`;
+    return 'Draw';
+  };
+  
+  const getRiskColor = (riskLevel) => {
+    if (riskLevel === 'Low') return 'text-green-400';
+    if (riskLevel === 'Medium') return 'text-yellow-400';
+    return 'text-red-400';
+  };
+  
+  return (
+    <div className="mt-3 p-2.5 rounded-lg bg-[#0f1219] border border-[#2a3042]">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center space-x-2">
+          <span className="text-sm">🤖</span>
+          <span className="text-xs text-gray-400">AI Prediction:</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPredictionColor(prediction.predictedWinner)}`}>
+            {getPredictionText(prediction.predictedWinner)}
+          </span>
+          <span className="text-xs text-gray-500">({prediction.confidence}% confidence)</span>
+        </div>
+        {prediction.riskLevel && (
+          <span className={`text-xs font-medium ${getRiskColor(prediction.riskLevel)}`}>
+            {prediction.riskLevel} Risk
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 mt-2">{prediction.insight}</p>
+      {prediction.recommendedBet && (
+        <div className="mt-2 pt-2 border-t border-[#2a3042] flex items-center justify-between">
+          <span className="text-xs text-gray-400">💡 Recommended:</span>
+          <span className="text-xs text-[#2e7d32] font-medium">{prediction.recommendedBet.type}</span>
+          <span className="text-xs text-gray-500">{prediction.recommendedBet.reason}</span>
+        </div>
+      )}
+      {prediction.probability && (
+        <div className="mt-2 flex items-center justify-between text-xs">
+          <span className="text-gray-500">Win Probability:</span>
+          <div className="flex space-x-3">
+            <span className="text-green-400">H: {prediction.probability.home}%</span>
+            <span className="text-yellow-400">D: {prediction.probability.draw}%</span>
+            <span className="text-orange-400">A: {prediction.probability.away}%</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Match Status Component
 const MatchStatus = ({ match }) => {
-  if (match.status === 'LIVE') {
+  if (match.status === 'LIVE' || match.status === 'FIRST_HALF' || match.status === 'SECOND_HALF') {
     return (
       <div className="flex items-center space-x-2">
         <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
@@ -21,6 +81,14 @@ const MatchStatus = ({ match }) => {
     return (
       <div className="text-gray-500 text-xs">
         FT • {match.score?.home || 0} - {match.score?.away || 0}
+      </div>
+    );
+  }
+  
+  if (match.status === 'HALFTIME') {
+    return (
+      <div className="text-yellow-500 text-xs font-medium">
+        HT • {match.score?.home || 0} - {match.score?.away || 0}
       </div>
     );
   }
@@ -86,7 +154,6 @@ export default function MatchCard({ match }) {
 
     setSelectedMarket(`${category}-${index}`);
     
-    // Create selection object that matches what BetSlip expects
     const selection = {
       _id: matchId,
       id: matchId,
@@ -109,10 +176,9 @@ export default function MatchCard({ match }) {
     setTimeout(() => setSelectedMarket(null), 200);
   };
 
-  // Get odds from match object (handle different formats)
+  // Get odds from match object
   const getOdds = () => {
     if (match.odds) {
-      // If odds is an object with home/draw/away
       return [
         { name: '1', odds: match.odds.home || 2.10, isActive: true },
         { name: 'X', odds: match.odds.draw || 3.40, isActive: true },
@@ -124,7 +190,6 @@ export default function MatchCard({ match }) {
       return match.markets;
     }
     
-    // Default odds
     return [
       { name: '1', odds: 2.10, isActive: true },
       { name: 'X', odds: 3.40, isActive: true },
@@ -157,7 +222,6 @@ export default function MatchCard({ match }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Enhanced Match Status */}
           <MatchStatus match={match} />
           <span className="text-white font-medium">
             {awayTeam.name}
@@ -168,7 +232,7 @@ export default function MatchCard({ match }) {
         </div>
       </div>
 
-      {/* Score Display (for live matches) */}
+      {/* Score Display */}
       {match.score && match.status !== 'SCHEDULED' && (
         <div className="text-center mb-4">
           <span className="text-xl font-bold text-[#2e7d32]">
@@ -179,8 +243,17 @@ export default function MatchCard({ match }) {
         </div>
       )}
 
+      {/* AI Prediction Badge */}
+      {(match.aiPrediction || match.prediction) && (
+        <AIPredictionBadge 
+          prediction={match.aiPrediction || match.prediction} 
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+        />
+      )}
+
       {/* Match Winner Market */}
-      <div className="mb-4">
+      <div className="mt-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm text-white font-medium">Match Winner</span>
         </div>
@@ -208,7 +281,7 @@ export default function MatchCard({ match }) {
         </div>
       </div>
 
-      {/* Additional Markets - Only show if there are more markets */}
+      {/* Additional Markets */}
       {markets.length > 3 && (
         <div>
           <div className="flex items-center justify-between mb-2">
