@@ -28,19 +28,10 @@ const PAYMENT_METHODS = {
       {
         id: 'till',
         name: 'M-Pesa Till Number',
-        number: '9960318',  // Updated till number
-        instructions: `1. Go to M-Pesa\n2. Select "Lipa na M-Pesa"\n3. Select "Pay Bill"\n4. Enter Business Number: 9960318\n5. Enter Account Number: Your Phone Number\n6. Enter Amount (Min KSh 500)\n7. Enter PIN and confirm`,
-        action: 'Pay with M-Pesa',
-        min: 500,
-        max: 70000
-      },
-      {
-        id: 'card',
-        name: 'Card Payment',
-        min: 500,
-        max: 500000,
-        instructions: 'Enter your card details below to complete payment',
-        action: 'Pay with Card'
+        number: '9960318',
+        type: 'Till Number',
+        instructions: `1. Go to M-Pesa\n2. Select "Lipa na M-Pesa"\n3. Select "Till Number"\n4. Enter Till Number: 9960318\n5. Enter Amount (Min KSh 500)\n6. Enter your M-Pesa PIN\n7. Confirm payment`,
+        action: 'Pay with M-Pesa Till'
       }
     ]
   },
@@ -49,16 +40,15 @@ const PAYMENT_METHODS = {
     symbol: 'USh',
     name: 'Ugandan Shilling',
     flag: '🇺🇬',
-    minDeposit: 14250,  // 500 KES × 28.5 = 14,250 UGX
+    minDeposit: 14250,
     methods: [
       {
         id: 'mobile',
         name: 'Airtel Money / MTN Mobile Money',
-        number: '+256 776 785216',  // Updated Uganda number
+        number: '+256 776 785216',
+        type: 'Mobile Money',
         instructions: `1. Go to Airtel Money or MTN Mobile Money\n2. Select "Send Money"\n3. Enter Number: +256 776 785216\n4. Enter Amount (Min USh 14,250)\n5. Enter Reference: BETZENITH\n6. Enter PIN and confirm`,
-        action: 'Send Money',
-        min: 14250,
-        max: 5000000
+        action: 'Send Money'
       }
     ]
   },
@@ -67,16 +57,15 @@ const PAYMENT_METHODS = {
     symbol: 'MK',
     name: 'Malawian Kwacha',
     flag: '🇲🇼',
-    minDeposit: 6400,  // 500 KES × 12.8 = 6,400 MWK
+    minDeposit: 6400,
     methods: [
       {
         id: 'mobile',
         name: 'Airtel Money / TNM Mpamba',
-        number: '+256 776 785216',  // Same number for Malawi (can be updated)
+        number: '+256 776 785216',
+        type: 'Mobile Money',
         instructions: `1. Go to Airtel Money or TNM Mpamba\n2. Select "Send Money"\n3. Enter Number: +256 776 785216\n4. Enter Amount (Min MK 6,400)\n5. Enter Reference: BETZENITH\n6. Enter PIN and confirm`,
-        action: 'Send Money',
-        min: 6400,
-        max: 2000000
+        action: 'Send Money'
       }
     ]
   }
@@ -86,7 +75,7 @@ const PAYMENT_METHODS = {
 const pendingDeposits = new Map();
 
 // @route   GET /api/payments/methods
-// @desc    Get available payment methods for user's currency
+// @desc    Get available payment methods
 router.get('/methods', protect, (req, res) => {
   const userCurrency = req.user.currency || 'KES';
   const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
@@ -186,6 +175,7 @@ router.post('/deposit', protect, async (req, res) => {
         symbol: currencyConfig.symbol,
         paymentDetails: {
           number: methodConfig.number,
+          type: methodConfig.type,
           instructions: methodConfig.instructions,
           action: methodConfig.action
         },
@@ -228,11 +218,9 @@ router.post('/confirm-deposit', protect, async (req, res) => {
       });
     }
     
-    // In production, you would verify with M-Pesa API here
-    // For now, we'll simulate verification
-    const user = await User.findById(pending.userId);
-    
     // Update user balance
+    const user = await User.findById(pending.userId);
+    const oldBalance = user.balance;
     user.balance += pending.amountInKES;
     await user.save();
     
@@ -246,7 +234,7 @@ router.post('/confirm-deposit', protect, async (req, res) => {
       confirmedPhone: phoneNumber
     };
     transaction.balance = {
-      before: user.balance - pending.amountInKES,
+      before: oldBalance,
       after: user.balance
     };
     await transaction.save();
@@ -254,18 +242,22 @@ router.post('/confirm-deposit', protect, async (req, res) => {
     // Remove from pending deposits
     pendingDeposits.delete(reference);
     
-    // Emit socket event
+    // Emit socket event for real-time balance update
     const io = req.app.get('io');
     if (io) {
       io.to(`user-${user._id}`).emit('balance-update', {
         newBalance: user.balance,
+        oldBalance: oldBalance,
+        amount: pending.amount,
+        currency: pending.currency,
         transaction: transaction.summary
       });
       
       io.to(`user-${user._id}`).emit('notification', {
         type: 'success',
         title: 'Deposit Successful',
-        message: `${PAYMENT_METHODS[pending.currency]?.symbol || 'KSh'} ${pending.amount.toLocaleString()} has been added to your account`
+        message: `${PAYMENT_METHODS[pending.currency]?.symbol || 'KSh'} ${pending.amount.toLocaleString()} has been added to your account`,
+        newBalance: user.balance
       });
     }
     
@@ -274,6 +266,9 @@ router.post('/confirm-deposit', protect, async (req, res) => {
       message: 'Deposit confirmed successfully!',
       data: {
         newBalance: user.balance,
+        oldBalance: oldBalance,
+        amountAdded: pending.amount,
+        currency: pending.currency,
         transaction: transaction.summary
       }
     });
@@ -325,197 +320,6 @@ router.get('/check-deposit/:reference', protect, async (req, res) => {
   }
 });
 
-// @route   POST /api/payments/mpesa-callback
-// @desc    M-Pesa callback webhook (for real M-Pesa integration)
-router.post('/mpesa-callback', async (req, res) => {
-  try {
-    const { Body } = req.body;
-    
-    if (Body && Body.stkCallback) {
-      const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = Body.stkCallback;
-      
-      if (ResultCode === 0) {
-        // Payment successful
-        let amount = 0;
-        let phoneNumber = '';
-        
-        if (CallbackMetadata && CallbackMetadata.Item) {
-          CallbackMetadata.Item.forEach(item => {
-            if (item.Name === 'Amount') amount = item.Value;
-            if (item.Name === 'PhoneNumber') phoneNumber = item.Value;
-          });
-        }
-        
-        // Find pending transaction by reference
-        const transaction = await Transaction.findOne({ 
-          'metadata.checkoutRequestId': CheckoutRequestID 
-        });
-        
-        if (transaction && transaction.status === 'PENDING') {
-          const user = await User.findById(transaction.user);
-          
-          user.balance += transaction.amountInKES;
-          await user.save();
-          
-          transaction.status = 'COMPLETED';
-          transaction.processedAt = new Date();
-          transaction.metadata = {
-            ...transaction.metadata,
-            mpesaReceipt: MerchantRequestID,
-            checkoutRequestId: CheckoutRequestID,
-            confirmedAt: new Date().toISOString()
-          };
-          await transaction.save();
-          
-          // Emit socket event
-          const io = req.app.get('io');
-          if (io) {
-            io.to(`user-${user._id}`).emit('balance-update', {
-              newBalance: user.balance,
-              transaction: transaction.summary
-            });
-          }
-        }
-      }
-    }
-    
-    res.json({ ResultCode: 0, ResultDesc: 'Success' });
-    
-  } catch (error) {
-    console.error('M-Pesa callback error:', error);
-    res.json({ ResultCode: 1, ResultDesc: 'Failed' });
-  }
-});
-
-// @route   POST /api/payments/withdraw
-// @desc    Make a withdrawal
-router.post('/withdraw', protect, async (req, res) => {
-  try {
-    const { amount, paymentMethod = 'mobile', currency = 'KES', phoneNumber } = req.body;
-    
-    const user = await User.findById(req.user._id);
-    const withdrawAmount = Number(amount);
-    
-    // Convert amount to KES for balance check
-    let amountInKES = withdrawAmount;
-    if (currency !== 'KES') {
-      amountInKES = withdrawAmount / EXCHANGE_RATES[currency];
-    }
-    
-    // Minimum withdrawal (500 KES equivalent)
-    const minWithdrawalKES = 500;
-    const minWithdrawal = currency === 'KES' ? minWithdrawalKES : Math.ceil(minWithdrawalKES * EXCHANGE_RATES[currency]);
-    
-    if (withdrawAmount < minWithdrawal) {
-      return res.status(400).json({
-        success: false,
-        message: `Minimum withdrawal is ${PAYMENT_METHODS[currency]?.symbol || 'KSh'} ${minWithdrawal.toLocaleString()}`
-      });
-    }
-    
-    // Check balance
-    if (user.balance < amountInKES) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient balance. Your balance is KSh ${user.balance.toLocaleString()}`
-      });
-    }
-    
-    // Update user balance
-    user.balance -= amountInKES;
-    await user.save();
-    
-    // Create transaction
-    const transaction = await Transaction.create({
-      user: user._id,
-      type: 'WITHDRAWAL',
-      amount: withdrawAmount,
-      amountInKES: amountInKES,
-      currency: currency,
-      status: 'PROCESSING',
-      paymentMethod,
-      description: `Withdrawal via ${paymentMethod} (${currency})`,
-      metadata: {
-        method: paymentMethod,
-        ip: req.ip,
-        userAgent: req.headers['user-agent'],
-        phoneNumber: phoneNumber
-      },
-      balance: {
-        before: user.balance + amountInKES,
-        after: user.balance
-      }
-    });
-    
-    // Emit socket event
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user-${user._id}`).emit('balance-update', {
-        newBalance: user.balance,
-        transaction: transaction.summary
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: 'Withdrawal initiated. Processing will take 1-3 business days.',
-      data: {
-        transaction: transaction.summary,
-        newBalance: user.balance,
-        status: 'processing'
-      }
-    });
-    
-  } catch (error) {
-    console.error('Withdrawal error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
-// @route   GET /api/payments/transactions
-// @desc    Get user's payment transactions
-router.get('/transactions', protect, async (req, res) => {
-  try {
-    const { page = 1, limit = 20 } = req.query;
-    
-    const transactions = await Transaction.find({
-      user: req.user._id,
-      type: { $in: ['DEPOSIT', 'WITHDRAWAL'] }
-    })
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
-    
-    const total = await Transaction.countDocuments({
-      user: req.user._id,
-      type: { $in: ['DEPOSIT', 'WITHDRAWAL'] }
-    });
-    
-    res.json({
-      success: true,
-      data: transactions,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit))
-      }
-    });
-    
-  } catch (error) {
-    console.error('Get payment transactions error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
 // @route   GET /api/payments/balance
 // @desc    Get user balance in all currencies
 router.get('/balance', protect, async (req, res) => {
@@ -540,6 +344,7 @@ router.get('/balance', protect, async (req, res) => {
       success: true,
       data: {
         baseCurrency: 'KES',
+        balance: user.balance,
         balances,
         minDeposits,
         symbols: {
@@ -557,6 +362,31 @@ router.get('/balance', protect, async (req, res) => {
     
   } catch (error) {
     console.error('Get balance error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/payments/balance-simple
+// @desc    Get simple user balance (for header)
+router.get('/balance-simple', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    
+    res.json({
+      success: true,
+      data: {
+        balance: user.balance,
+        currency: 'KES',
+        symbol: 'KSh'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get simple balance error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',

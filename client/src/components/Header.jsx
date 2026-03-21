@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useBetSlip } from '../context/BetSlipContext';
 import { FiUser, FiLogOut, FiMenu, FiX, FiDollarSign, FiTrendingUp, FiSun, FiMoon } from 'react-icons/fi';
+import axios from 'axios';
 
 export default function Header() {
   const { user, logout, isAuthenticated } = useAuth();
@@ -10,6 +11,7 @@ export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [balance, setBalance] = useState(0);
   const navigate = useNavigate();
 
   // Load theme preference from localStorage
@@ -24,14 +26,43 @@ export default function Header() {
     }
   }, []);
 
+  // Fetch balance when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      fetchBalance();
+      
+      // Listen for balance update events
+      const handleBalanceUpdate = (event) => {
+        if (event.detail && event.detail.newBalance !== undefined) {
+          setBalance(event.detail.newBalance);
+        }
+      };
+      
+      window.addEventListener('balance-update', handleBalanceUpdate);
+      
+      return () => {
+        window.removeEventListener('balance-update', handleBalanceUpdate);
+      };
+    }
+  }, [isAuthenticated, user]);
+
+  const fetchBalance = async () => {
+    try {
+      const response = await axios.get('/api/payments/balance-simple');
+      if (response.data.success) {
+        setBalance(response.data.data.balance);
+      }
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+    }
+  };
+
   const toggleTheme = () => {
     if (isDarkMode) {
-      // Switch to light mode
       document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
       setIsDarkMode(false);
     } else {
-      // Switch to dark mode
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
       setIsDarkMode(true);
@@ -40,6 +71,7 @@ export default function Header() {
 
   const handleLogout = () => {
     logout();
+    setBalance(0);
     navigate('/');
     setIsMenuOpen(false);
     setIsProfileOpen(false);
@@ -49,10 +81,10 @@ export default function Header() {
     <header className="bg-[#0f1219] border-b border-[#2a3042] sticky top-0 z-50 ml-64">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-20">
-          {/* Logo - BETZENITH */}
+          {/* Logo */}
           <Link to="/" className="flex items-center space-x-2 group">
             <span className="text-2xl font-bold text-white">
-              BET<span className="text-[#00b3b3] group-hover:text-[#00cccc] transition-colors">ZENITH</span>
+              BET<span className="text-[#00b3b3] group-hover:text-[#00cccc] transition-colors">FUSION</span>
             </span>
             <span className="text-xs bg-[#00b3b3]/10 text-[#00b3b3] px-2 py-1 rounded-full">PREMIUM</span>
           </Link>
@@ -70,7 +102,7 @@ export default function Header() {
               <span className="absolute -top-1 -right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             </Link>
 
-            {/* Theme Toggle Button - Only this changes the whole project theme */}
+            {/* Theme Toggle Button */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg bg-[#1a1f2e] border border-[#2a3042] hover:border-[#00b3b3] transition-colors"
@@ -85,13 +117,12 @@ export default function Header() {
 
             {isAuthenticated ? (
               <div className="flex items-center space-x-4">
-                {/* Balance */}
+                {/* Balance - Dynamic */}
                 <div className="flex items-center space-x-2 bg-[#1a1f2e] px-4 py-2 rounded-lg border border-[#2a3042]">
                   <FiDollarSign className="text-[#00b3b3]" />
-                  <span className="text-white font-bold">{user?.balance?.toFixed(2)}</span>
-                  <span className="text-xs text-gray-500">USD</span>
+                  <span className="text-white font-bold">KSh {balance.toLocaleString()}</span>
                 </div>
-
+                
                 {/* Profile Dropdown */}
                 <div className="relative">
                   <button
@@ -138,6 +169,13 @@ export default function Header() {
                           onClick={() => setIsProfileOpen(false)}
                         >
                           Analytics
+                        </Link>
+                        <Link
+                          to="/deposit"
+                          className="block px-4 py-2 text-green-400 hover:bg-[#2a3042] hover:text-green-300 rounded-lg transition-colors"
+                          onClick={() => setIsProfileOpen(false)}
+                        >
+                          💰 Deposit
                         </Link>
                       </div>
                       <div className="p-2 border-t border-[#2a3042]">
@@ -234,7 +272,7 @@ export default function Header() {
                 <>
                   <div className="px-4 py-3 bg-[#1a1f2e] rounded-lg border border-[#2a3042]">
                     <p className="text-white font-semibold">{user?.username}</p>
-                    <p className="text-sm text-gray-500">Balance: ₦{user?.balance?.toFixed(2)}</p>
+                    <p className="text-sm text-green-400 font-bold">Balance: KSh {balance.toLocaleString()}</p>
                   </div>
                   <Link
                     to="/dashboard"
@@ -263,6 +301,13 @@ export default function Header() {
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Analytics
+                  </Link>
+                  <Link
+                    to="/deposit"
+                    className="px-4 py-3 text-green-400 hover:bg-[#1a1f2e] hover:text-green-300 rounded-lg transition-colors"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    💰 Deposit
                   </Link>
                   <button
                     onClick={handleLogout}

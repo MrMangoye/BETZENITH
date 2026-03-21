@@ -3,16 +3,62 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getMyBets, getTransactions } from '../services/api';
 import { format } from 'date-fns';
+import axios from 'axios';
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [bets, setBets] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [balance, setBalance] = useState(0);
+  const [balances, setBalances] = useState({
+    KES: 0,
+    UGX: 0,
+    MWK: 0
+  });
 
   useEffect(() => {
     loadData();
+    fetchBalance();
+    
+    // Listen for balance updates
+    const handleBalanceUpdate = (event) => {
+      if (event.detail && event.detail.newBalance !== undefined) {
+        setBalance(event.detail.newBalance);
+        updateBalances(event.detail.newBalance);
+        if (setUser) {
+          setUser({ ...user, balance: event.detail.newBalance });
+        }
+      }
+    };
+    
+    window.addEventListener('balance-update', handleBalanceUpdate);
+    
+    return () => {
+      window.removeEventListener('balance-update', handleBalanceUpdate);
+    };
   }, []);
+
+  const fetchBalance = async () => {
+    try {
+      const response = await axios.get('/api/payments/balance');
+      if (response.data.success) {
+        const data = response.data.data;
+        setBalance(data.balance);
+        updateBalances(data.balance);
+      }
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+    }
+  };
+
+  const updateBalances = (balanceKES) => {
+    setBalances({
+      KES: balanceKES,
+      UGX: balanceKES * 28.5,
+      MWK: balanceKES * 12.8
+    });
+  };
 
   const loadData = async () => {
     try {
@@ -20,8 +66,8 @@ export default function Dashboard() {
         getMyBets(),
         getTransactions()
       ]);
-      setBets(betsData);
-      setTransactions(transactionsData);
+      setBets(Array.isArray(betsData) ? betsData : betsData?.data || []);
+      setTransactions(Array.isArray(transactionsData) ? transactionsData : transactionsData?.data || []);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -32,29 +78,45 @@ export default function Dashboard() {
   const stats = {
     totalBets: bets.length,
     wonBets: bets.filter(b => b.status === 'WON').length,
-    totalStaked: bets.reduce((acc, b) => acc + b.stake, 0),
-    totalWon: bets.filter(b => b.status === 'WON').reduce((acc, b) => acc + b.potentialWin, 0)
+    totalStaked: bets.reduce((acc, b) => acc + (b.stake || 0), 0),
+    totalWon: bets.filter(b => b.status === 'WON').reduce((acc, b) => acc + (b.potentialWin || 0), 0)
   };
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-white">Dashboard</h1>
       
+      {/* Balance Cards - Shows all currencies */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
+          <p className="text-gray-400 text-sm">🇰🇪 Kenyan Shilling (KES)</p>
+          <p className="text-2xl font-bold text-[#00cc88]">KSh {balances.KES.toLocaleString()}</p>
+        </div>
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
+          <p className="text-gray-400 text-sm">🇺🇬 Ugandan Shilling (UGX)</p>
+          <p className="text-2xl font-bold text-white">USh {balances.UGX.toLocaleString()}</p>
+        </div>
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
+          <p className="text-gray-400 text-sm">🇲🇼 Malawian Kwacha (MWK)</p>
+          <p className="text-2xl font-bold text-white">MK {balances.MWK.toLocaleString()}</p>
+        </div>
+      </div>
+      
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-[#1a1f2e] p-4 rounded-lg">
-          <p className="text-gray-400 text-sm">Balance</p>
-          <p className="text-2xl font-bold text-[#00cc88]">₦{user?.balance?.toFixed(2)}</p>
-        </div>
-        <div className="bg-[#1a1f2e] p-4 rounded-lg">
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
           <p className="text-gray-400 text-sm">Total Bets</p>
           <p className="text-2xl font-bold text-white">{stats.totalBets}</p>
         </div>
-        <div className="bg-[#1a1f2e] p-4 rounded-lg">
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
           <p className="text-gray-400 text-sm">Won Bets</p>
           <p className="text-2xl font-bold text-green-400">{stats.wonBets}</p>
         </div>
-        <div className="bg-[#1a1f2e] p-4 rounded-lg">
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
+          <p className="text-gray-400 text-sm">Total Staked</p>
+          <p className="text-2xl font-bold text-white">KSh {stats.totalStaked.toLocaleString()}</p>
+        </div>
+        <div className="bg-[#1a1f2e] p-4 rounded-lg border border-[#2a3042]">
           <p className="text-gray-400 text-sm">Win Rate</p>
           <p className="text-2xl font-bold text-white">
             {stats.totalBets ? ((stats.wonBets / stats.totalBets) * 100).toFixed(1) : 0}%
@@ -64,38 +126,42 @@ export default function Dashboard() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Link to="/deposit" className="bg-[#00b3b3] p-4 rounded-lg text-center hover:bg-[#009999]">
+        <Link to="/deposit" className="bg-gradient-to-r from-[#2e7d32] to-[#1e5a22] p-4 rounded-lg text-center hover:from-[#1e5a22] hover:to-[#0e3a1a] transition-all">
           <div className="text-2xl mb-2">💰</div>
-          <div className="font-bold">Deposit</div>
+          <div className="font-bold text-white">Deposit</div>
+          <div className="text-xs text-gray-300">Min KSh 500</div>
         </Link>
-        <Link to="/withdraw" className="bg-[#2a2f3f] p-4 rounded-lg text-center hover:bg-[#353b4d]">
+        <Link to="/withdraw" className="bg-[#2a2f3f] p-4 rounded-lg text-center hover:bg-[#353b4d] transition-all">
           <div className="text-2xl mb-2">💸</div>
-          <div className="font-bold">Withdraw</div>
+          <div className="font-bold text-white">Withdraw</div>
+          <div className="text-xs text-gray-400">Min KSh 500</div>
         </Link>
-        <Link to="/bet-history" className="bg-[#2a2f3f] p-4 rounded-lg text-center hover:bg-[#353b4d]">
+        <Link to="/bet-history" className="bg-[#2a2f3f] p-4 rounded-lg text-center hover:bg-[#353b4d] transition-all">
           <div className="text-2xl mb-2">📊</div>
-          <div className="font-bold">History</div>
+          <div className="font-bold text-white">History</div>
+          <div className="text-xs text-gray-400">View all bets</div>
         </Link>
-        <Link to="/" className="bg-[#2a2f3f] p-4 rounded-lg text-center hover:bg-[#353b4d]">
+        <Link to="/" className="bg-[#2a2f3f] p-4 rounded-lg text-center hover:bg-[#353b4d] transition-all">
           <div className="text-2xl mb-2">⚽</div>
-          <div className="font-bold">Bet Now</div>
+          <div className="font-bold text-white">Bet Now</div>
+          <div className="text-xs text-gray-400">Place your bets</div>
         </Link>
       </div>
 
       {/* Recent Bets */}
-      <div className="bg-[#1a1f2e] rounded-lg p-6">
+      <div className="bg-[#1a1f2e] rounded-lg p-6 border border-[#2a3042]">
         <h2 className="text-xl font-bold text-white mb-4">Recent Bets</h2>
         {loading ? (
           <p className="text-gray-400">Loading...</p>
         ) : bets.length === 0 ? (
-          <p className="text-gray-400">No bets yet. <Link to="/" className="text-[#00b3b3]">Start betting!</Link></p>
+          <p className="text-gray-400">No bets yet. <Link to="/" className="text-[#2e7d32]">Start betting!</Link></p>
         ) : (
           <div className="space-y-3">
             {bets.slice(0, 5).map((bet) => (
               <div key={bet._id} className="flex justify-between items-center border-b border-gray-800 pb-2">
                 <div>
                   <p className="text-white font-semibold">{bet.match?.homeTeam?.name} vs {bet.match?.awayTeam?.name}</p>
-                  <p className="text-sm text-gray-400">Stake: ₦{bet.stake} @ {bet.odds}</p>
+                  <p className="text-sm text-gray-400">Stake: KSh {bet.stake?.toLocaleString()} @ {bet.odds}</p>
                 </div>
                 <span className={`px-2 py-1 rounded text-xs ${
                   bet.status === 'WON' ? 'bg-green-500/20 text-green-400' :
