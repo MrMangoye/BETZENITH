@@ -1,6 +1,5 @@
-// src/context/AuthContext.jsx
 import { createContext, useState, useContext, useEffect, useMemo } from 'react';
-import { login as apiLogin, register as apiRegister, getProfile, verifyEmail as apiVerifyEmail } from '../services/api';
+import { login as apiLogin, register as apiRegister, getProfile } from '../services/api';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -43,7 +42,6 @@ export const AuthProvider = ({ children }) => {
   const loadUser = async () => {
     try {
       const userData = await getProfile();
-      // Ensure balance is a number
       userData.balance = parseFloat(userData.balance) || 0;
       setUser(userData);
     } catch (error) {
@@ -59,16 +57,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const data = await apiLogin(email, password);
       
-      // Check if email is verified
-      if (!data.emailVerified) {
-        toast.warning('Please verify your email before logging in');
-        localStorage.setItem('verificationEmail', email);
-        throw new Error('Email not verified');
-      }
-
-      // Ensure balance is a number
       data.balance = parseFloat(data.balance) || 0;
-
       localStorage.setItem('token', data.token);
       setToken(data.token);
       setUser(data);
@@ -84,26 +73,12 @@ export const AuthProvider = ({ children }) => {
     try {
       const data = await apiRegister(username, email, password);
       
-      // New users start with 0 balance
       data.balance = 0;
       
-      // Store email for verification
-      localStorage.setItem('verificationEmail', email);
-      toast.success('Registration successful! Please check your email to verify your account.');
+      toast.success('Registration successful! You can now login.');
       return data;
     } catch (error) {
       toast.error(error.response?.data?.message || 'Registration failed');
-      throw error;
-    }
-  };
-
-  const verifyEmail = async (token) => {
-    try {
-      const data = await apiVerifyEmail(token);
-      toast.success('Email verified successfully!');
-      return data;
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Verification failed');
       throw error;
     }
   };
@@ -116,13 +91,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateBalance = (newBalance) => {
-    setUser(prev => ({ 
-      ...prev, 
-      balance: parseFloat(newBalance) || 0 
+    setUser(prev => ({
+      ...prev,
+      balance: parseFloat(newBalance) || 0
     }));
   };
 
-  // Update balance after bet placement
   const deductBalance = (amount) => {
     if (user) {
       const newBalance = (user.balance || 0) - amount;
@@ -132,7 +106,6 @@ export const AuthProvider = ({ children }) => {
     return 0;
   };
 
-  // Add winnings to balance
   const addWinnings = (amount) => {
     if (user) {
       const newBalance = (user.balance || 0) + amount;
@@ -154,7 +127,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Use useMemo to create a stable object reference
   const value = useMemo(() => ({
     user,
     loading,
@@ -164,7 +136,6 @@ export const AuthProvider = ({ children }) => {
     updateBalance,
     deductBalance,
     addWinnings,
-    verifyEmail,
     toggleTheme,
     isDarkMode,
     isAuthenticated: !!user,

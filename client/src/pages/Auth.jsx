@@ -99,19 +99,19 @@ export default function Auth() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-
+    
     if (!validateEmail(loginEmail)) {
       toast.error('Please enter a valid email address');
       return;
     }
-
+    
     setLoading(true);
     try {
       await login(loginEmail, loginPassword);
       toast.success('Login successful!');
       navigate('/');
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Login failed');
+      // Error already handled in login function
     } finally {
       setLoading(false);
     }
@@ -119,44 +119,46 @@ export default function Auth() {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-
+    
     // Validate username
     if (!validateUsername(username)) {
       toast.error('Username must be 3-20 characters and can only contain letters, numbers, and underscores');
       return;
     }
-
+    
     // Validate email
     if (!validateEmail(email)) {
       toast.error('Please enter a valid email address');
       return;
     }
-
+    
     // Validate password strength
     if (passwordStrength < 40) {
       toast.error('Please use a stronger password');
       return;
     }
-
+    
     // Validate passwords match
     if (password !== confirmPassword) {
       toast.error('Passwords do not match');
       return;
     }
-
+    
     // Validate terms acceptance
     if (!acceptTerms) {
       toast.error('Please accept the Terms and Conditions');
       return;
     }
-
+    
     setLoading(true);
     try {
       await register(username, email, password);
-      toast.success('Registration successful! Please check your email for verification.');
-      navigate('/verify-email');
+      // Switch to login tab after successful registration
+      setIsLogin(true);
+      setLoginEmail(email);
+      toast.success('Registration successful! You can now login.');
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Registration failed');
+      // Error already handled in register function
     } finally {
       setLoading(false);
     }
@@ -177,6 +179,7 @@ export default function Auth() {
             <FiMoon className="text-gray-400" size={20} />
           )}
         </button>
+        
         <div className="flex gap-6">
           {/* Login/Sign Up Form - Left Side */}
           <div className="flex-1">
@@ -190,11 +193,11 @@ export default function Auth() {
                   Your Premier Sports Betting Platform
                 </p>
               </div>
-
+              
               <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} mb-3 text-center`}>
                 Account Access
               </h2>
-
+              
               {/* Login/Sign Up Toggle Buttons */}
               <div className="flex space-x-3 mb-6 justify-center">
                 <button
@@ -218,7 +221,7 @@ export default function Auth() {
                   SIGN UP
                 </button>
               </div>
-
+              
               {/* Form Container */}
               <div className={`${isDarkMode ? 'bg-[#0f1219]' : 'bg-white'} rounded-xl border-2 border-[#2a3042] p-5 max-h-[60vh] overflow-y-auto scrollbar-hide`}>
                 {isLogin ? (
@@ -227,7 +230,7 @@ export default function Auth() {
                     <h3 className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} mb-3`}>
                       Login to Your Account
                     </h3>
-
+                    
                     <form onSubmit={handleLogin} className="space-y-3">
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
@@ -242,6 +245,7 @@ export default function Auth() {
                           required
                         />
                       </div>
+                      
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
                           Password
@@ -264,6 +268,7 @@ export default function Auth() {
                           </button>
                         </div>
                       </div>
+                      
                       <div className="flex items-center justify-between mt-2">
                         <label className="flex items-center space-x-2">
                           <input type="checkbox" className="rounded border-gray-600" />
@@ -278,6 +283,7 @@ export default function Auth() {
                           Forgot password?
                         </Link>
                       </div>
+                      
                       <button
                         type="submit"
                         disabled={loading}
@@ -293,7 +299,7 @@ export default function Auth() {
                     <h3 className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} mb-3`}>
                       Create Your Account
                     </h3>
-
+                    
                     <form onSubmit={handleRegister} className="space-y-3">
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
@@ -317,6 +323,7 @@ export default function Auth() {
                           </p>
                         )}
                       </div>
+                      
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
                           Email
@@ -330,6 +337,7 @@ export default function Auth() {
                           required
                         />
                       </div>
+                      
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
                           Phone Number (Optional)
@@ -342,6 +350,7 @@ export default function Auth() {
                           placeholder="+254 XXX XXX XXX"
                         />
                       </div>
+                      
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
                           Country
@@ -357,6 +366,7 @@ export default function Auth() {
                           <option value="Malawi">Malawi 🇲🇼</option>
                         </select>
                       </div>
+                      
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs`}>
@@ -389,7 +399,7 @@ export default function Auth() {
                             {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                           </button>
                         </div>
-
+                        
                         {/* Password Strength Meter */}
                         {password && (
                           <div className="mt-2">
@@ -413,6 +423,7 @@ export default function Auth() {
                           </div>
                         )}
                       </div>
+                      
                       <div>
                         <label className={`block ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-1 text-xs`}>
                           Confirm Password
@@ -438,6 +449,7 @@ export default function Auth() {
                           <p className="text-red-500 text-xs mt-1">Passwords do not match</p>
                         )}
                       </div>
+                      
                       <div className="flex items-center space-x-2 mt-2">
                         <input
                           type="checkbox"
@@ -457,6 +469,7 @@ export default function Auth() {
                           </button>
                         </label>
                       </div>
+                      
                       <button
                         type="submit"
                         disabled={loading}
@@ -468,18 +481,18 @@ export default function Auth() {
                   </>
                 )}
               </div>
-
-              {/* Email Verification Notice */}
+              
+              {/* Registration Success Message */}
               {!isLogin && (
-                <div className={`mt-4 p-3 ${isDarkMode ? 'bg-[#1a1f2e]' : 'bg-blue-50'} rounded-lg border border-blue-500/20 text-center`}>
-                  <p className={`text-xs ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-                    📧 A verification email will be sent to your inbox
+                <div className={`mt-4 p-3 ${isDarkMode ? 'bg-[#2e7d32]/20' : 'bg-green-50'} rounded-lg border border-[#2e7d32]/30 text-center`}>
+                  <p className={`text-xs ${isDarkMode ? 'text-[#2e7d32]' : 'text-green-600'}`}>
+                    ✅ Registration successful! You can login immediately.
                   </p>
                 </div>
               )}
             </div>
           </div>
-
+          
           {/* Bet Slip - Right Side */}
           <div className="w-80 hidden lg:block">
             <div className="sticky top-24">

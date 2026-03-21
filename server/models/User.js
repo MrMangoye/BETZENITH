@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
+    unique: true,  // This ensures no duplicate emails
     lowercase: true,
     trim: true,
     match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
@@ -37,10 +37,10 @@ const userSchema = new mongoose.Schema({
   },
   dateOfBirth: Date,
 
-  // Email Verification
+  // Email Verification - UPDATED: Auto-verified by default
   isVerified: {
     type: Boolean,
-    default: false
+    default: true  // Changed from false to true - users are auto-verified
   },
   verificationToken: String,
   verificationTokenExpires: Date,
@@ -147,7 +147,7 @@ userSchema.methods.generateAuthToken = function() {
   );
 };
 
-// Generate verification token
+// Generate verification token (kept for backward compatibility)
 userSchema.methods.generateVerificationToken = function() {
   const crypto = require('crypto');
   const token = crypto.randomBytes(32).toString('hex');
@@ -156,7 +156,7 @@ userSchema.methods.generateVerificationToken = function() {
   return token;
 };
 
-// ===== ADDED: Helper method to check verification status =====
+// Helper method to check verification status
 userSchema.methods.isEmailVerified = function() {
   return this.isVerified === true;
 };
