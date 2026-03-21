@@ -265,6 +265,64 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/kyc', require('./routes/kyc'));
 app.use('/api/odds', require('./routes/odds'));
 
+// ============ DEBUG ROUTES ============
+app.get('/debug-routes', (req, res) => {
+  try {
+    const routes = [];
+    
+    function extractRoutes(stack, basePath = '') {
+      if (!stack || !stack.forEach) return;
+      
+      stack.forEach(layer => {
+        if (layer.route) {
+          // This is a route
+          const methods = Object.keys(layer.route.methods).join(',');
+          routes.push({
+            path: basePath + layer.route.path,
+            methods: methods.toUpperCase()
+          });
+        } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+          // This is a router middleware (like our auth router)
+          let routerPath = basePath;
+          
+          // Try to get the base path for this router
+          if (layer.regexp) {
+            let pathStr = layer.regexp.toString();
+            // Extract the path pattern
+            const match = pathStr.match(/\/\^\\\/(.*?)(?:\\\/\?|\\\?)/);
+            if (match && match[1]) {
+              routerPath = basePath + '/' + match[1].replace(/\\\//g, '/');
+            } else {
+              routerPath = basePath;
+            }
+          }
+          
+          // Extract routes from this router
+          extractRoutes(layer.handle.stack, routerPath);
+        }
+      });
+    }
+    
+    extractRoutes(app._router.stack);
+    
+    // Filter to show only auth-related routes
+    const authRoutes = routes.filter(r => r.path.includes('auth'));
+    
+    res.json({
+      success: true,
+      totalRoutes: routes.length,
+      authRoutes: authRoutes,
+      allRoutes: routes // Show all routes
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
 // ============ HEALTH CHECK ============
 app.get('/health', (req, res) => {
   res.json({
