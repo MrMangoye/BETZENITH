@@ -268,6 +268,8 @@ app.use('/api/odds', require('./routes/odds'));
 app.use('/api/ai', require('./routes/ai'));
 // Add after other routes
 app.use('/api/ai-matches', require('./routes/aiMatches'));
+// Add this line with your other routes
+app.use('/api/payments', require('./routes/payments'));
 
 // Start the AI Match Service
 const aiMatchService = require('./services/aiMatchService');
