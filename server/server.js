@@ -49,16 +49,28 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// ============ CORS - UPDATED TO ACCEPT ALL VERCEL PROJECTS ============
+// ============ CORS - UPDATED FOR YOUR DEPLOYMENT ============
 const allowedOrigins = [
+  // Local development
   'http://localhost:5173',
   'http://localhost:3000',
+  
+  // Your Vercel deployments (free URLs)
+  'https://betfusion.vercel.app',
   'https://betzenith.vercel.app',
   'https://betzenith-client.vercel.app',
   'https://betzenith-u8ji.vercel.app',
   'https://betzenith-odux.vercel.app',
-  'https://betzenith-9dx1.onrender.com', // Backend itself
-  process.env.CLIENT_URL // From environment variable
+  
+  // Your custom domain (if you buy one later)
+  'https://betznith.com',
+  'https://www.betznith.com',
+  
+  // Render backend (for testing)
+  'https://betfusion-api.onrender.com',
+  
+  // From environment variable (for flexibility)
+  process.env.CLIENT_URL
 ].filter(Boolean); // Remove any undefined values
 
 app.use(cors({
@@ -66,13 +78,27 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      console.log('❌ CORS blocked for origin:', origin);
-      console.log('✅ Allowed origins:', allowedOrigins);
-      return callback(new Error(msg), false);
+    // Check if origin is allowed
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
     }
-    return callback(null, true);
+    
+    // Special: Allow any vercel.app subdomain dynamically
+    if (origin.endsWith('.vercel.app')) {
+      console.log('✅ Allowed Vercel subdomain:', origin);
+      return callback(null, true);
+    }
+    
+    // Special: Allow any onrender.com subdomain dynamically
+    if (origin.endsWith('.onrender.com')) {
+      console.log('✅ Allowed Render subdomain:', origin);
+      return callback(null, true);
+    }
+    
+    // Block other origins
+    console.log('❌ CORS blocked for origin:', origin);
+    console.log('✅ Allowed origins:', allowedOrigins);
+    return callback(new Error('CORS policy does not allow this origin'), false);
   },
   credentials: true,
   exposedHeaders: ['Authorization']
@@ -180,7 +206,7 @@ io.on('connection', (socket) => {
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000, // Add timeout for better error handling
+  serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 45000,
 })
   .then(() => {
@@ -284,4 +310,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📱 Client URL: ${process.env.CLIENT_URL}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   console.log('✅ CORS allowed origins:', allowedOrigins);
+  console.log('✅ Dynamic CORS: Any *.vercel.app and *.onrender.com subdomains are allowed');
 });
