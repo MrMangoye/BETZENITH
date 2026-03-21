@@ -1,8 +1,9 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
-const { depositValidation, withdrawValidation } = require('../middleware/validation');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const axios = require('axios');
+const crypto = require('crypto');
 const router = express.Router();
 
 // Exchange rates (base KES)
@@ -15,18 +16,21 @@ const EXCHANGE_RATES = {
 // Minimum deposit in KES (base currency)
 const MINIMUM_DEPOSIT_KES = 500;
 
-// Payment methods configuration with updated minimums
+// Payment methods configuration with REAL NUMBERS
 const PAYMENT_METHODS = {
   KES: {
     currency: 'KES',
     symbol: 'KSh',
-    minDeposit: 500,  // Minimum 500 KES
+    name: 'Kenyan Shilling',
+    flag: '🇰🇪',
+    minDeposit: 500,
     methods: [
       {
         id: 'till',
-        name: 'M-Pesa Till',
-        number: '5243333',
-        instructions: 'Go to M-Pesa, select Pay Bill, enter Business Number 5243333, Account Number: Your Phone Number',
+        name: 'M-Pesa Till Number',
+        number: '9960318',  // Updated till number
+        instructions: `1. Go to M-Pesa\n2. Select "Lipa na M-Pesa"\n3. Select "Pay Bill"\n4. Enter Business Number: 9960318\n5. Enter Account Number: Your Phone Number\n6. Enter Amount (Min KSh 500)\n7. Enter PIN and confirm`,
+        action: 'Pay with M-Pesa',
         min: 500,
         max: 70000
       },
@@ -34,20 +38,25 @@ const PAYMENT_METHODS = {
         id: 'card',
         name: 'Card Payment',
         min: 500,
-        max: 500000
+        max: 500000,
+        instructions: 'Enter your card details below to complete payment',
+        action: 'Pay with Card'
       }
     ]
   },
   UGX: {
     currency: 'UGX',
     symbol: 'USh',
+    name: 'Ugandan Shilling',
+    flag: '🇺🇬',
     minDeposit: 14250,  // 500 KES × 28.5 = 14,250 UGX
     methods: [
       {
         id: 'mobile',
         name: 'Airtel Money / MTN Mobile Money',
-        number: '+256 700 123 456',
-        instructions: 'Send money to +256 700 123 456 with reference: BETZENITH',
+        number: '+256 776 785216',  // Updated Uganda number
+        instructions: `1. Go to Airtel Money or MTN Mobile Money\n2. Select "Send Money"\n3. Enter Number: +256 776 785216\n4. Enter Amount (Min USh 14,250)\n5. Enter Reference: BETZENITH\n6. Enter PIN and confirm`,
+        action: 'Send Money',
         min: 14250,
         max: 5000000
       }
@@ -56,19 +65,25 @@ const PAYMENT_METHODS = {
   MWK: {
     currency: 'MWK',
     symbol: 'MK',
+    name: 'Malawian Kwacha',
+    flag: '🇲🇼',
     minDeposit: 6400,  // 500 KES × 12.8 = 6,400 MWK
     methods: [
       {
         id: 'mobile',
         name: 'Airtel Money / TNM Mpamba',
-        number: '+265 888 123 456',
-        instructions: 'Send money to +265 888 123 456 with reference: BETZENITH',
+        number: '+256 776 785216',  // Same number for Malawi (can be updated)
+        instructions: `1. Go to Airtel Money or TNM Mpamba\n2. Select "Send Money"\n3. Enter Number: +256 776 785216\n4. Enter Amount (Min MK 6,400)\n5. Enter Reference: BETZENITH\n6. Enter PIN and confirm`,
+        action: 'Send Money',
         min: 6400,
         max: 2000000
       }
     ]
   }
 };
+
+// Store pending deposits for verification
+const pendingDeposits = new Map();
 
 // @route   GET /api/payments/methods
 // @desc    Get available payment methods for user's currency
@@ -81,6 +96,8 @@ router.get('/methods', protect, (req, res) => {
     data: {
       currency: userCurrency,
       symbol: methods.symbol,
+      name: methods.name,
+      flag: methods.flag,
       minDeposit: methods.minDeposit,
       methods: methods.methods,
       exchangeRates: EXCHANGE_RATES
@@ -89,10 +106,10 @@ router.get('/methods', protect, (req, res) => {
 });
 
 // @route   POST /api/payments/deposit
-// @desc    Make a deposit
-router.post('/deposit', protect, depositValidation, async (req, res) => {
+// @desc    Initiate a deposit
+router.post('/deposit', protect, async (req, res) => {
   try {
-    const { amount, paymentMethod = 'till', currency = 'KES' } = req.body;
+    const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber } = req.body;
     
     const user = await User.findById(req.user._id);
     const depositAmount = Number(amount);
@@ -109,71 +126,70 @@ router.post('/deposit', protect, depositValidation, async (req, res) => {
       });
     }
     
+    // Validate phone number
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number is required for payment'
+      });
+    }
+    
     // Convert amount to base currency for balance update
     let amountInKES = depositAmount;
     if (currency !== 'KES') {
       amountInKES = depositAmount / EXCHANGE_RATES[currency];
     }
     
-    const amountInKESNum = Number(amountInKES);
+    // Generate unique transaction reference
+    const reference = `DEP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     
     // Create pending transaction
     const transaction = await Transaction.create({
       user: user._id,
       type: 'DEPOSIT',
       amount: depositAmount,
-      amountInKES: amountInKESNum,
+      amountInKES: amountInKES,
       currency: currency,
       status: 'PENDING',
       paymentMethod,
+      reference,
       description: `Deposit via ${paymentMethod} (${currency})`,
       metadata: {
         method: paymentMethod,
         ip: req.ip,
         userAgent: req.headers['user-agent'],
-        phoneNumber: req.body.phoneNumber || null
+        phoneNumber: phoneNumber,
+        initiatedAt: new Date().toISOString()
       }
     });
     
-    // Simulate payment processing (in production, this would be a callback)
-    setTimeout(async () => {
-      // Update user balance in KES
-      user.balance += amountInKESNum;
-      await user.save();
-      
-      // Update transaction
-      transaction.status = 'COMPLETED';
-      transaction.processedAt = new Date();
-      transaction.balance = {
-        before: user.balance - amountInKESNum,
-        after: user.balance
-      };
-      await transaction.save();
-      
-      // Emit socket event
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`user-${user._id}`).emit('balance-update', {
-          newBalance: user.balance,
-          transaction: transaction.summary
-        });
-        
-        io.to(`user-${user._id}`).emit('notification', {
-          type: 'success',
-          title: 'Deposit Successful',
-          message: `${currencyConfig?.symbol || 'KSh'} ${depositAmount.toLocaleString()} has been added to your account`
-        });
-      }
-    }, 2000);
+    // Store pending deposit for verification
+    pendingDeposits.set(reference, {
+      userId: user._id,
+      amount: depositAmount,
+      amountInKES: amountInKES,
+      currency,
+      phoneNumber,
+      createdAt: Date.now()
+    });
+    
+    // Get payment instructions
+    const methodConfig = currencyConfig.methods.find(m => m.id === paymentMethod);
     
     res.json({
       success: true,
-      message: 'Deposit initiated. You will receive confirmation shortly.',
+      message: 'Deposit initiated. Please send payment to complete.',
       data: {
-        transaction: transaction.summary,
-        status: 'processing',
-        minDeposit: minDeposit,
-        instructions: currencyConfig?.methods.find(m => m.id === paymentMethod)?.instructions || null
+        reference,
+        amount: depositAmount,
+        currency,
+        symbol: currencyConfig.symbol,
+        paymentDetails: {
+          number: methodConfig.number,
+          instructions: methodConfig.instructions,
+          action: methodConfig.action
+        },
+        status: 'pending'
       }
     });
     
@@ -187,22 +203,37 @@ router.post('/deposit', protect, depositValidation, async (req, res) => {
   }
 });
 
-// @route   POST /api/payments/confirm-mpesa
-// @desc    Confirm M-Pesa payment (webhook callback)
-router.post('/confirm-mpesa', async (req, res) => {
+// @route   POST /api/payments/confirm-deposit
+// @desc    Confirm a deposit after user has sent payment
+router.post('/confirm-deposit', protect, async (req, res) => {
   try {
-    const { transactionId, phoneNumber, amount, reference } = req.body;
+    const { reference, transactionId, phoneNumber } = req.body;
     
+    const pending = pendingDeposits.get(reference);
+    
+    if (!pending) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found or already processed'
+      });
+    }
+    
+    // Check if transaction exists in database
     const transaction = await Transaction.findOne({ reference });
     
     if (!transaction || transaction.status !== 'PENDING') {
-      return res.status(404).json({ success: false, message: 'Transaction not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
     }
     
-    const user = await User.findById(transaction.user);
+    // In production, you would verify with M-Pesa API here
+    // For now, we'll simulate verification
+    const user = await User.findById(pending.userId);
     
-    // Update balance
-    user.balance += transaction.amountInKES || transaction.amount;
+    // Update user balance
+    user.balance += pending.amountInKES;
     await user.save();
     
     // Update transaction
@@ -210,14 +241,18 @@ router.post('/confirm-mpesa', async (req, res) => {
     transaction.processedAt = new Date();
     transaction.metadata = {
       ...transaction.metadata,
-      mpesaReceipt: transactionId,
+      confirmedAt: new Date().toISOString(),
+      transactionId: transactionId,
       confirmedPhone: phoneNumber
     };
     transaction.balance = {
-      before: user.balance - transaction.amount,
+      before: user.balance - pending.amountInKES,
       after: user.balance
     };
     await transaction.save();
+    
+    // Remove from pending deposits
+    pendingDeposits.delete(reference);
     
     // Emit socket event
     const io = req.app.get('io');
@@ -226,21 +261,137 @@ router.post('/confirm-mpesa', async (req, res) => {
         newBalance: user.balance,
         transaction: transaction.summary
       });
+      
+      io.to(`user-${user._id}`).emit('notification', {
+        type: 'success',
+        title: 'Deposit Successful',
+        message: `${PAYMENT_METHODS[pending.currency]?.symbol || 'KSh'} ${pending.amount.toLocaleString()} has been added to your account`
+      });
     }
     
-    res.json({ success: true, message: 'Payment confirmed' });
+    res.json({
+      success: true,
+      message: 'Deposit confirmed successfully!',
+      data: {
+        newBalance: user.balance,
+        transaction: transaction.summary
+      }
+    });
     
   } catch (error) {
-    console.error('M-Pesa confirmation error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    console.error('Confirm deposit error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/payments/check-deposit/:reference
+// @desc    Check status of a deposit
+router.get('/check-deposit/:reference', protect, async (req, res) => {
+  try {
+    const { reference } = req.params;
+    
+    const transaction = await Transaction.findOne({ reference });
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        status: transaction.status,
+        reference: transaction.reference,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        createdAt: transaction.createdAt,
+        processedAt: transaction.processedAt
+      }
+    });
+    
+  } catch (error) {
+    console.error('Check deposit error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+});
+
+// @route   POST /api/payments/mpesa-callback
+// @desc    M-Pesa callback webhook (for real M-Pesa integration)
+router.post('/mpesa-callback', async (req, res) => {
+  try {
+    const { Body } = req.body;
+    
+    if (Body && Body.stkCallback) {
+      const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = Body.stkCallback;
+      
+      if (ResultCode === 0) {
+        // Payment successful
+        let amount = 0;
+        let phoneNumber = '';
+        
+        if (CallbackMetadata && CallbackMetadata.Item) {
+          CallbackMetadata.Item.forEach(item => {
+            if (item.Name === 'Amount') amount = item.Value;
+            if (item.Name === 'PhoneNumber') phoneNumber = item.Value;
+          });
+        }
+        
+        // Find pending transaction by reference
+        const transaction = await Transaction.findOne({ 
+          'metadata.checkoutRequestId': CheckoutRequestID 
+        });
+        
+        if (transaction && transaction.status === 'PENDING') {
+          const user = await User.findById(transaction.user);
+          
+          user.balance += transaction.amountInKES;
+          await user.save();
+          
+          transaction.status = 'COMPLETED';
+          transaction.processedAt = new Date();
+          transaction.metadata = {
+            ...transaction.metadata,
+            mpesaReceipt: MerchantRequestID,
+            checkoutRequestId: CheckoutRequestID,
+            confirmedAt: new Date().toISOString()
+          };
+          await transaction.save();
+          
+          // Emit socket event
+          const io = req.app.get('io');
+          if (io) {
+            io.to(`user-${user._id}`).emit('balance-update', {
+              newBalance: user.balance,
+              transaction: transaction.summary
+            });
+          }
+        }
+      }
+    }
+    
+    res.json({ ResultCode: 0, ResultDesc: 'Success' });
+    
+  } catch (error) {
+    console.error('M-Pesa callback error:', error);
+    res.json({ ResultCode: 1, ResultDesc: 'Failed' });
   }
 });
 
 // @route   POST /api/payments/withdraw
 // @desc    Make a withdrawal
-router.post('/withdraw', protect, withdrawValidation, async (req, res) => {
+router.post('/withdraw', protect, async (req, res) => {
   try {
-    const { amount, paymentMethod = 'bank', currency = 'KES' } = req.body;
+    const { amount, paymentMethod = 'mobile', currency = 'KES', phoneNumber } = req.body;
     
     const user = await User.findById(req.user._id);
     const withdrawAmount = Number(amount);
@@ -270,20 +421,6 @@ router.post('/withdraw', protect, withdrawValidation, async (req, res) => {
       });
     }
     
-    // Check withdrawal limits based on KYC level
-    let maxWithdrawal = 1000000;
-    if (user.kycLevel === 0) maxWithdrawal = 50000;
-    if (user.kycLevel === 1) maxWithdrawal = 200000;
-    if (user.kycLevel === 2) maxWithdrawal = 500000;
-    if (user.kycLevel === 3) maxWithdrawal = 2000000;
-    
-    if (withdrawAmount > maxWithdrawal) {
-      return res.status(400).json({
-        success: false,
-        message: `Maximum withdrawal for your KYC level is ${PAYMENT_METHODS[currency]?.symbol || 'KSh'} ${maxWithdrawal.toLocaleString()}`
-      });
-    }
-    
     // Update user balance
     user.balance -= amountInKES;
     await user.save();
@@ -297,16 +434,16 @@ router.post('/withdraw', protect, withdrawValidation, async (req, res) => {
       currency: currency,
       status: 'PROCESSING',
       paymentMethod,
-      balance: {
-        before: user.balance + amountInKES,
-        after: user.balance
-      },
       description: `Withdrawal via ${paymentMethod} (${currency})`,
       metadata: {
         method: paymentMethod,
         ip: req.ip,
         userAgent: req.headers['user-agent'],
-        phoneNumber: req.body.phoneNumber || null
+        phoneNumber: phoneNumber
+      },
+      balance: {
+        before: user.balance + amountInKES,
+        after: user.balance
       }
     });
     
@@ -409,6 +546,11 @@ router.get('/balance', protect, async (req, res) => {
           KES: 'KSh',
           UGX: 'USh',
           MWK: 'MK'
+        },
+        flags: {
+          KES: '🇰🇪',
+          UGX: '🇺🇬',
+          MWK: '🇲🇼'
         }
       }
     });
