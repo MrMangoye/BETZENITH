@@ -5,6 +5,33 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
+// Match Status Component
+const MatchStatus = ({ match }) => {
+  if (match.status === 'LIVE') {
+    return (
+      <div className="flex items-center space-x-2">
+        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+        <span className="text-red-500 text-xs font-bold">LIVE</span>
+        <span className="text-white text-sm">{match.minute}'</span>
+      </div>
+    );
+  }
+  
+  if (match.status === 'FINISHED') {
+    return (
+      <div className="text-gray-500 text-xs">
+        FT • {match.score?.home || 0} - {match.score?.away || 0}
+      </div>
+    );
+  }
+  
+  return (
+    <div className="text-gray-500 text-xs">
+      {match.startsAt ? new Date(match.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '19:00'}
+    </div>
+  );
+};
+
 export default function MatchCard({ match }) {
   const [selectedMarket, setSelectedMarket] = useState(null);
   const { addToBetSlip } = useBetSlip();
@@ -130,15 +157,8 @@ export default function MatchCard({ match }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className={`text-xs px-2 py-1 rounded ${
-            match.status === 'LIVE'
-              ? 'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse'
-              : match.status === 'HALFTIME' || match.status === 'FIRST_HALF'
-                ? 'bg-yellow-500/20 text-yellow-400'
-                : 'bg-gray-500/20 text-gray-400'
-          }`}>
-            {match.status === 'LIVE' ? `LIVE ${match.minute || ''}'` : match.status || 'SCHEDULED'}
-          </span>
+          {/* Enhanced Match Status */}
+          <MatchStatus match={match} />
           <span className="text-white font-medium">
             {awayTeam.name}
           </span>
@@ -149,7 +169,7 @@ export default function MatchCard({ match }) {
       </div>
 
       {/* Score Display (for live matches) */}
-      {match.score && (
+      {match.score && match.status !== 'SCHEDULED' && (
         <div className="text-center mb-4">
           <span className="text-xl font-bold text-[#2e7d32]">
             {typeof match.score === 'object' 

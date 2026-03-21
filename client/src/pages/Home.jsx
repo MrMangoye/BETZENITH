@@ -21,6 +21,96 @@ import {
   GiDragonOrb, GiChickenOven
 } from 'react-icons/gi';
 
+// Jackpot Counter Component
+const JackpotCounter = () => {
+  const [jackpot, setJackpot] = useState(12500000); // Starting jackpot
+  
+  useEffect(() => {
+    // Increment jackpot based on bets placed
+    const interval = setInterval(() => {
+      setJackpot(prev => prev + Math.floor(Math.random() * 10000));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <div className="bg-gradient-to-r from-yellow-600 to-orange-600 rounded-xl p-6 mb-6 shadow-lg transform hover:scale-[1.02] transition-all duration-300">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-white text-sm uppercase tracking-wider font-semibold">🔥 Current Jackpot</h3>
+          <div className="text-4xl font-bold text-white mt-2">
+            KSh {jackpot.toLocaleString()}
+          </div>
+          <div className="text-yellow-200 text-xs mt-2">Rolling over every week • 3 days left</div>
+        </div>
+        <div className="text-5xl opacity-50">🏆</div>
+      </div>
+      <div className="mt-3 h-1.5 bg-yellow-400/30 rounded-full overflow-hidden">
+        <div className="h-full w-2/3 bg-yellow-400 rounded-full animate-pulse"></div>
+      </div>
+    </div>
+  );
+};
+
+// Real-time winners feed
+const WinnersFeed = () => {
+  const [winners, setWinners] = useState([]);
+  
+  useEffect(() => {
+    // Simulate real-time winners
+    const mockWinners = [
+      { username: "John***", amount: 125000, time: "2 mins ago", game: "EPL Accumulator" },
+      { username: "Mary***", amount: 45000, time: "5 mins ago", game: "NBA Match" },
+      { username: "Peter***", amount: 89000, time: "12 mins ago", game: "UCL Parlay" }
+    ];
+    setWinners(mockWinners);
+    
+    const interval = setInterval(() => {
+      const newWinner = {
+        username: `${['Mike', 'Sarah', 'David', 'James', 'Lisa'][Math.floor(Math.random() * 5)]}***`,
+        amount: Math.floor(Math.random() * 200000) + 10000,
+        time: "Just now",
+        game: ['Premier League', 'La Liga', 'NBA', 'UCL', 'Serie A'][Math.floor(Math.random() * 5)]
+      };
+      setWinners(prev => [newWinner, ...prev.slice(0, 4)]);
+    }, 15000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <div className="bg-[#1a1f2e] rounded-xl p-4 border border-[#2a3042] mb-6">
+      <h3 className="text-white font-bold mb-3 flex items-center">
+        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></span>
+        Recent Winners
+        <span className="ml-2 text-xs text-gray-500 font-normal">Live feed</span>
+      </h3>
+      <div className="space-y-3">
+        {winners.map((winner, i) => (
+          <div key={i} className="flex justify-between items-center text-sm group hover:bg-[#2a2f3f] p-2 rounded-lg transition-colors">
+            <div className="flex items-center space-x-2">
+              <span className="w-6 h-6 bg-green-500/20 rounded-full flex items-center justify-center text-xs text-green-400">
+                {i === 0 ? '🎉' : '💰'}
+              </span>
+              <div>
+                <span className="text-gray-300">{winner.username}</span>
+                <span className="text-gray-500 text-xs ml-2">won on {winner.game}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-green-400 font-bold">+KSh {winner.amount.toLocaleString()}</span>
+              <span className="text-gray-500 text-xs ml-2">{winner.time}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 pt-2 border-t border-[#2a3042] text-center">
+        <span className="text-xs text-gray-500">🎲 Over 2,500 winners this week!</span>
+      </div>
+    </div>
+  );
+};
+
 export default function Home() {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -377,6 +467,12 @@ export default function Home() {
 
       {/* Main Content Area - DIRECT CHILD, NO MAIN ELEMENT */}
       <div className="container mx-auto px-4 py-8">
+        {/* Two Column Layout for Jackpot and Winners */}
+        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <JackpotCounter />
+          <WinnersFeed />
+        </div>
+
         {/* Top Leagues - GREEN MARGIN REDUCED WITH SHARP EDGES */}
         <div className="bg-[#0f1219] rounded-lg border border-[#2a3042] p-5 mb-5 relative max-w-5xl mx-auto">
           <div className="flex items-center justify-between mb-4">

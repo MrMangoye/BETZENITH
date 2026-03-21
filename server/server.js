@@ -264,6 +264,8 @@ app.use('/api/live', require('./routes/live'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/kyc', require('./routes/kyc'));
 app.use('/api/odds', require('./routes/odds'));
+// Add after your other routes
+app.use('/api/ai', require('./routes/ai'));
 
 // ============ DEBUG ROUTES ============
 app.get('/debug-routes', (req, res) => {
