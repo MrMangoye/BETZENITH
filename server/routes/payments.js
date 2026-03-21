@@ -74,28 +74,42 @@ const PAYMENT_METHODS = {
 // Store pending deposits for verification
 const pendingDeposits = new Map();
 
+// ============ PUBLIC ROUTES (No authentication required) ============
+
 // @route   GET /api/payments/methods
-// @desc    Get available payment methods
-router.get('/methods', protect, (req, res) => {
-  const userCurrency = req.user.currency || 'KES';
-  const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
-  
-  res.json({
-    success: true,
-    data: {
-      currency: userCurrency,
-      symbol: methods.symbol,
-      name: methods.name,
-      flag: methods.flag,
-      minDeposit: methods.minDeposit,
-      methods: methods.methods,
-      exchangeRates: EXCHANGE_RATES
-    }
-  });
+// @desc    Get available payment methods (PUBLIC - no auth required)
+router.get('/methods', (req, res) => {
+  try {
+    // Default to KES if no user or currency not set
+    const userCurrency = req.user?.currency || 'KES';
+    const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
+    
+    res.json({
+      success: true,
+      data: {
+        currency: methods.currency,
+        symbol: methods.symbol,
+        name: methods.name,
+        flag: methods.flag,
+        minDeposit: methods.minDeposit,
+        methods: methods.methods,
+        exchangeRates: EXCHANGE_RATES
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching payment methods:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
 });
 
+// ============ PROTECTED ROUTES (Authentication required) ============
+
 // @route   POST /api/payments/deposit
-// @desc    Initiate a deposit
+// @desc    Initiate a deposit (requires auth)
 router.post('/deposit', protect, async (req, res) => {
   try {
     const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber } = req.body;
@@ -194,7 +208,7 @@ router.post('/deposit', protect, async (req, res) => {
 });
 
 // @route   POST /api/payments/confirm-deposit
-// @desc    Confirm a deposit after user has sent payment
+// @desc    Confirm a deposit after user has sent payment (requires auth)
 router.post('/confirm-deposit', protect, async (req, res) => {
   try {
     const { reference, transactionId, phoneNumber } = req.body;
@@ -284,12 +298,12 @@ router.post('/confirm-deposit', protect, async (req, res) => {
 });
 
 // @route   GET /api/payments/check-deposit/:reference
-// @desc    Check status of a deposit
+// @desc    Check status of a deposit (requires auth)
 router.get('/check-deposit/:reference', protect, async (req, res) => {
   try {
     const { reference } = req.params;
     
-    const transaction = await Transaction.findOne({ reference });
+    const transaction = await Transaction.findOne({ reference, user: req.user._id });
     
     if (!transaction) {
       return res.status(404).json({
@@ -321,7 +335,7 @@ router.get('/check-deposit/:reference', protect, async (req, res) => {
 });
 
 // @route   GET /api/payments/balance
-// @desc    Get user balance in all currencies
+// @desc    Get user balance in all currencies (requires auth)
 router.get('/balance', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -371,7 +385,7 @@ router.get('/balance', protect, async (req, res) => {
 });
 
 // @route   GET /api/payments/balance-simple
-// @desc    Get simple user balance (for header)
+// @desc    Get simple user balance (for header) (requires auth)
 router.get('/balance-simple', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
