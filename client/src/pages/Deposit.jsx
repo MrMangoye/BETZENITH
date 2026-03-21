@@ -38,6 +38,11 @@ export default function Deposit() {
     fetchPaymentMethods();
   }, [selectedCurrency]);
 
+  // Get current currency object
+  const getCurrentCurrency = () => {
+    return currencies.find(c => c.code === selectedCurrency);
+  };
+
   const fetchPaymentMethods = async () => {
     try {
       const response = await axios.get('/api/payments/methods');
@@ -71,10 +76,6 @@ export default function Deposit() {
         { id: 'till', name: 'M-Pesa Till Number', number: '9960318', min: 500, max: 70000 }
       ]);
     }
-  };
-
-  const getCurrentCurrency = () => {
-    return currencies.find(c => c.code === selectedCurrency);
   };
 
   const handleInitiateDeposit = async (e) => {
@@ -228,10 +229,7 @@ export default function Deposit() {
     }
   };
 
-  const getCurrentCurrency = () => {
-    return currencies.find(c => c.code === selectedCurrency);
-  };
-
+  // Get current currency object (using the same function defined above)
   const currentCurrency = getCurrentCurrency();
   const currentMinDeposit = currentCurrency?.minDeposit || 500;
   const tillNumber = currentCurrency?.tillNumber || '9960318';
