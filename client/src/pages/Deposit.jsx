@@ -16,6 +16,8 @@ export default function Deposit() {
   const [currencyFlag, setCurrencyFlag] = useState('🇰🇪');
   const [minDeposit, setMinDeposit] = useState(500);
   const [pendingTransaction, setPendingTransaction] = useState(null);
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [exchangeRates, setExchangeRates] = useState({});
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
 
@@ -39,12 +41,35 @@ export default function Deposit() {
   const fetchPaymentMethods = async () => {
     try {
       const response = await axios.get('/api/payments/methods');
-      setCurrencySymbol(response.data.data.symbol);
-      setCurrencyName(response.data.data.name);
-      setCurrencyFlag(response.data.data.flag);
-      setMinDeposit(response.data.data.minDeposit);
+      // Add safe check for response data structure
+      if (response.data && response.data.success && response.data.data) {
+        setCurrencySymbol(response.data.data.symbol || 'KSh');
+        setCurrencyName(response.data.data.name || 'Kenyan Shilling');
+        setCurrencyFlag(response.data.data.flag || '🇰🇪');
+        setMinDeposit(response.data.data.minDeposit || 500);
+        setPaymentMethods(response.data.data.methods || []);
+        setExchangeRates(response.data.data.exchangeRates || {});
+      } else {
+        // Fallback to default values
+        console.warn('Payment methods API returned unexpected structure:', response.data);
+        setCurrencySymbol('KSh');
+        setCurrencyName('Kenyan Shilling');
+        setCurrencyFlag('🇰🇪');
+        setMinDeposit(500);
+        setPaymentMethods([
+          { id: 'till', name: 'M-Pesa Till Number', number: '9960318', min: 500, max: 70000 }
+        ]);
+      }
     } catch (error) {
       console.error('Error fetching payment methods:', error);
+      // Set fallback payment methods
+      setCurrencySymbol('KSh');
+      setCurrencyName('Kenyan Shilling');
+      setCurrencyFlag('🇰🇪');
+      setMinDeposit(500);
+      setPaymentMethods([
+        { id: 'till', name: 'M-Pesa Till Number', number: '9960318', min: 500, max: 70000 }
+      ]);
     }
   };
 
@@ -56,7 +81,7 @@ export default function Deposit() {
     e.preventDefault();
     
     const currentCurrency = getCurrentCurrency();
-    const currentMinDeposit = currentCurrency?.minDeposit;
+    const currentMinDeposit = currentCurrency?.minDeposit || 500;
     const amountNum = parseFloat(amount);
     
     if (isNaN(amountNum) || amountNum < currentMinDeposit) {
@@ -79,47 +104,51 @@ export default function Deposit() {
         phoneNumber
       });
       
-      setPendingTransaction(response.data.data);
-      
-      // Show payment instructions based on country
-      if (selectedCurrency === 'KES') {
-        toast.success(
-          `Send KSh ${amountNum.toLocaleString()} to Till Number: 9960318`,
-          { duration: 5000 }
-        );
-        toast.info(
-          `📱 M-Pesa Instructions:\n\n` +
-          `1. Go to M-Pesa\n` +
-          `2. Select "Lipa na M-Pesa"\n` +
-          `3. Select "Till Number"\n` +
-          `4. Enter Till Number: 9960318\n` +
-          `5. Enter Amount: KSh ${amountNum.toLocaleString()}\n` +
-          `6. Enter your M-Pesa PIN\n` +
-          `7. Confirm payment\n\n` +
-          `✅ You will receive a confirmation SMS`,
-          { duration: 10000 }
-        );
+      if (response.data && response.data.success) {
+        setPendingTransaction(response.data.data);
+        
+        // Show payment instructions based on country
+        if (selectedCurrency === 'KES') {
+          toast.success(
+            `Send KSh ${amountNum.toLocaleString()} to Till Number: 9960318`,
+            { duration: 5000 }
+          );
+          toast.info(
+            `📱 M-Pesa Instructions:\n\n` +
+            `1. Go to M-Pesa\n` +
+            `2. Select "Lipa na M-Pesa"\n` +
+            `3. Select "Till Number"\n` +
+            `4. Enter Till Number: 9960318\n` +
+            `5. Enter Amount: KSh ${amountNum.toLocaleString()}\n` +
+            `6. Enter your M-Pesa PIN\n` +
+            `7. Confirm payment\n\n` +
+            `✅ You will receive a confirmation SMS`,
+            { duration: 10000 }
+          );
+        } else {
+          const mobileNumber = currentCurrency.mobileNumber;
+          toast.success(
+            `Send ${currencySymbol} ${amountNum.toLocaleString()} to ${mobileNumber}`,
+            { duration: 5000 }
+          );
+          toast.info(
+            `📱 Mobile Money Instructions:\n\n` +
+            `1. Go to Airtel Money or MTN Mobile Money\n` +
+            `2. Select "Send Money"\n` +
+            `3. Enter Number: ${mobileNumber}\n` +
+            `4. Enter Amount: ${currencySymbol} ${amountNum.toLocaleString()}\n` +
+            `5. Enter Reference: BETZENITH\n` +
+            `6. Enter PIN and confirm\n\n` +
+            `✅ You will receive a confirmation SMS`,
+            { duration: 10000 }
+          );
+        }
+        
+        // Start polling for confirmation
+        startPollingForConfirmation(response.data.data.reference);
       } else {
-        const mobileNumber = currentCurrency.mobileNumber;
-        toast.success(
-          `Send ${currencySymbol} ${amountNum.toLocaleString()} to ${mobileNumber}`,
-          { duration: 5000 }
-        );
-        toast.info(
-          `📱 Mobile Money Instructions:\n\n` +
-          `1. Go to Airtel Money or MTN Mobile Money\n` +
-          `2. Select "Send Money"\n` +
-          `3. Enter Number: ${mobileNumber}\n` +
-          `4. Enter Amount: ${currencySymbol} ${amountNum.toLocaleString()}\n` +
-          `5. Enter Reference: BETZENITH\n` +
-          `6. Enter PIN and confirm\n\n` +
-          `✅ You will receive a confirmation SMS`,
-          { duration: 10000 }
-        );
+        toast.error(response.data?.message || 'Failed to initiate deposit');
       }
-      
-      // Start polling for confirmation
-      startPollingForConfirmation(response.data.data.reference);
       
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to initiate deposit');
@@ -138,10 +167,10 @@ export default function Deposit() {
       try {
         const response = await axios.get(`/api/payments/check-deposit/${reference}`);
         
-        if (response.data.data.status === 'COMPLETED') {
+        if (response.data && response.data.success && response.data.data.status === 'COMPLETED') {
           clearInterval(interval);
           toast.success('✅ Deposit confirmed! Your balance has been updated.');
-          // Trigger balance update in header and dashboard
+          // Trigger balance update
           window.dispatchEvent(new CustomEvent('balance-update', { 
             detail: { newBalance: response.data.data.newBalance || (user?.balance + parseFloat(amount)) }
           }));
@@ -176,23 +205,31 @@ export default function Deposit() {
         phoneNumber
       });
       
-      toast.success('✅ Deposit confirmed!');
-      
-      // Trigger balance update
-      window.dispatchEvent(new CustomEvent('balance-update', { 
-        detail: { newBalance: response.data.data.newBalance }
-      }));
-      
-      setPendingTransaction(null);
-      setAmount('');
-      setPhoneNumber('');
-      navigate('/dashboard');
+      if (response.data && response.data.success) {
+        toast.success('✅ Deposit confirmed!');
+        
+        // Trigger balance update
+        window.dispatchEvent(new CustomEvent('balance-update', { 
+          detail: { newBalance: response.data.data.newBalance }
+        }));
+        
+        setPendingTransaction(null);
+        setAmount('');
+        setPhoneNumber('');
+        navigate('/dashboard');
+      } else {
+        toast.error(response.data?.message || 'Failed to confirm deposit');
+      }
       
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to confirm deposit');
     } finally {
       setConfirming(false);
     }
+  };
+
+  const getCurrentCurrency = () => {
+    return currencies.find(c => c.code === selectedCurrency);
   };
 
   const currentCurrency = getCurrentCurrency();
@@ -212,6 +249,10 @@ export default function Deposit() {
             <div className="flex justify-between items-center">
               <span className="text-gray-300">🇰🇪 Kenyan Shilling (KES):</span>
               <span className="text-2xl font-bold text-[#00cc88]">KSh {user?.balance?.toLocaleString() || 0}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-400">≈ UGX: {((user?.balance || 0) * 28.5).toLocaleString()}</span>
+              <span className="text-gray-400">≈ MWK: {((user?.balance || 0) * 12.8).toLocaleString()}</span>
             </div>
           </div>
         </div>
