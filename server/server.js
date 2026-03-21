@@ -33,7 +33,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:5173'],
+      connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:5173', 'https://*.vercel.app', 'https://*.onrender.com'],
       imgSrc: ["'self'", "data:", "https:"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
@@ -61,6 +61,7 @@ const allowedOrigins = [
   'https://betzenith-client.vercel.app',
   'https://betzenith-u8ji.vercel.app',
   'https://betzenith-odux.vercel.app',
+  'https://betzenith-git-main-mrmangoyes-projects.vercel.app',
   
   // Your custom domain (if you buy one later)
   'https://betznith.com',
@@ -73,6 +74,7 @@ const allowedOrigins = [
   process.env.CLIENT_URL
 ].filter(Boolean); // Remove any undefined values
 
+// CORS Middleware
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -80,29 +82,50 @@ app.use(cors({
     
     // Check if origin is allowed
     if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS allowed (exact match):', origin);
       return callback(null, true);
     }
     
     // Special: Allow any vercel.app subdomain dynamically
     if (origin.endsWith('.vercel.app')) {
-      console.log('✅ Allowed Vercel subdomain:', origin);
+      console.log('✅ CORS allowed (Vercel subdomain):', origin);
       return callback(null, true);
     }
     
     // Special: Allow any onrender.com subdomain dynamically
     if (origin.endsWith('.onrender.com')) {
-      console.log('✅ Allowed Render subdomain:', origin);
+      console.log('✅ CORS allowed (Render subdomain):', origin);
       return callback(null, true);
     }
     
     // Block other origins
     console.log('❌ CORS blocked for origin:', origin);
-    console.log('✅ Allowed origins:', allowedOrigins);
     return callback(new Error('CORS policy does not allow this origin'), false);
   },
   credentials: true,
   exposedHeaders: ['Authorization']
 }));
+
+// ============ ADDITIONAL CORS HEADERS MIDDLEWARE ============
+// This ensures CORS headers are set even if the main CORS middleware fails
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Allow any vercel.app or onrender.com origin
+  if (origin && (origin.endsWith('.vercel.app') || origin.endsWith('.onrender.com') || allowedOrigins.includes(origin))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  }
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
 
 // ============ MIDDLEWARE ============
 app.use(compression());
@@ -269,11 +292,11 @@ app.use('/api/ai', require('./routes/ai'));
 // Add after other routes
 app.use('/api/ai-matches', require('./routes/aiMatches'));
 // Add this line with your other routes
-app.use('/api/payments', require('./routes/payments'));
 
 // Start the AI Match Service
 const aiMatchService = require('./services/aiMatchService');
 aiMatchService.start();
+
 // ============ DEBUG ROUTES ============
 app.get('/debug-routes', (req, res) => {
   try {
