@@ -44,9 +44,12 @@ export const AuthProvider = ({ children }) => {
       const userData = await getProfile();
       userData.balance = parseFloat(userData.balance) || 0;
       setUser(userData);
+      // Store in localStorage for persistence
+      localStorage.setItem('user', JSON.stringify(userData));
     } catch (error) {
       console.error('Failed to load user:', error);
       localStorage.removeItem('token');
+      localStorage.removeItem('user');
       setToken(null);
     } finally {
       setLoading(false);
@@ -59,6 +62,7 @@ export const AuthProvider = ({ children }) => {
       
       data.balance = parseFloat(data.balance) || 0;
       localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data));
       setToken(data.token);
       setUser(data);
       toast.success(`Welcome back, ${data.username}!`);
@@ -85,6 +89,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setToken(null);
     setUser(null);
     toast.success('Logged out successfully');
@@ -95,12 +100,34 @@ export const AuthProvider = ({ children }) => {
       ...prev,
       balance: parseFloat(newBalance) || 0
     }));
+    // Also update localStorage
+    const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    if (storedUser) {
+      storedUser.balance = parseFloat(newBalance) || 0;
+      localStorage.setItem('user', JSON.stringify(storedUser));
+    }
+  };
+
+  // NEW: Function to update user balance from external events (like deposits)
+  const updateUserBalance = (newBalance) => {
+    if (user) {
+      const updatedUser = { ...user, balance: parseFloat(newBalance) || 0 };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      console.log('💰 Balance updated to:', newBalance);
+    }
   };
 
   const deductBalance = (amount) => {
     if (user) {
       const newBalance = (user.balance || 0) - amount;
       setUser(prev => ({ ...prev, balance: newBalance }));
+      // Update localStorage
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      if (storedUser) {
+        storedUser.balance = newBalance;
+        localStorage.setItem('user', JSON.stringify(storedUser));
+      }
       return newBalance;
     }
     return 0;
@@ -110,6 +137,12 @@ export const AuthProvider = ({ children }) => {
     if (user) {
       const newBalance = (user.balance || 0) + amount;
       setUser(prev => ({ ...prev, balance: newBalance }));
+      // Update localStorage
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      if (storedUser) {
+        storedUser.balance = newBalance;
+        localStorage.setItem('user', JSON.stringify(storedUser));
+      }
       return newBalance;
     }
     return 0;
@@ -129,11 +162,13 @@ export const AuthProvider = ({ children }) => {
 
   const value = useMemo(() => ({
     user,
+    setUser, // Added setUser so other components can update user
     loading,
     login,
     register,
     logout,
     updateBalance,
+    updateUserBalance, // Added this
     deductBalance,
     addWinnings,
     toggleTheme,
