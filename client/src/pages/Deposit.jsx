@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-// Use the full backend URL - this is the key fix!
 const BACKEND_URL = 'https://betzenith-9dx1.onrender.com/api';
 
 export default function Deposit() {
@@ -26,49 +25,13 @@ export default function Deposit() {
 
   const fetchPaymentMethods = async () => {
     try {
-      console.log('🔍 Fetching payment methods from:', `${BACKEND_URL}/payments/methods`);
       const response = await axios.get(`${BACKEND_URL}/payments/methods`);
-      console.log('✅ Payment methods response:', response.data);
       if (response.data && response.data.success) {
         setMinDeposit(response.data.data.minDeposit || 500);
       }
     } catch (error) {
-      console.error('❌ Error fetching payment methods:', error);
+      console.error('Error fetching payment methods:', error);
       setMinDeposit(500);
-    }
-  };
-
-  const testDepositApi = async () => {
-    const fullUrl = `${BACKEND_URL}/payments/deposit`;
-    console.log('🔍 Testing deposit API...');
-    console.log('📍 Full URL:', fullUrl);
-    
-    const token = localStorage.getItem('token');
-    console.log('🔑 Token exists:', !!token);
-    
-    try {
-      const response = await axios({
-        method: 'POST',
-        url: fullUrl,
-        data: {
-          amount: 500,
-          paymentMethod: 'till',
-          currency: 'KES',
-          phoneNumber: '254712345678'
-        },
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        }
-      });
-      console.log('✅ Deposit API test successful:', response.data);
-      toast.success('Deposit API working! Check console for details.');
-    } catch (error) {
-      console.error('❌ Deposit API test failed:');
-      console.error('URL attempted:', fullUrl);
-      console.error('Status:', error.response?.status);
-      console.error('Data:', error.response?.data);
-      toast.error(`Error: ${error.response?.status || error.message}`);
     }
   };
 
@@ -90,13 +53,10 @@ export default function Deposit() {
     setLoading(true);
     
     try {
-      const fullUrl = `${BACKEND_URL}/payments/deposit`;
-      console.log('💰 Initiating deposit to:', fullUrl);
-      
       const token = localStorage.getItem('token');
       const response = await axios({
         method: 'POST',
-        url: fullUrl,
+        url: `${BACKEND_URL}/payments/deposit`,
         data: {
           amount: amountNum,
           paymentMethod: 'till',
@@ -109,8 +69,6 @@ export default function Deposit() {
         }
       });
       
-      console.log('✅ Deposit response:', response.data);
-      
       if (response.data && response.data.success) {
         setPendingTransaction(response.data.data);
         
@@ -119,17 +77,18 @@ export default function Deposit() {
           { duration: 5000 }
         );
         
-        toast.info(
+        // Fixed: Use toast() instead of toast.info()
+        toast(
           `📱 M-Pesa Instructions:\n\n` +
-          `1. Go to M-Pesa\n` +
-          `2. Select "Lipa na M-Pesa"\n` +
-          `3. Select "Till Number"\n` +
-          `4. Enter Till Number: 9960318\n` +
-          `5. Enter Amount: KSh ${amountNum.toLocaleString()}\n` +
-          `6. Enter your M-Pesa PIN\n` +
-          `7. Confirm payment\n\n` +
+          `1️⃣ Go to M-Pesa\n` +
+          `2️⃣ Select "Lipa na M-Pesa"\n` +
+          `3️⃣ Select "Till Number"\n` +
+          `4️⃣ Enter Till Number: 9960318\n` +
+          `5️⃣ Enter Amount: KSh ${amountNum.toLocaleString()}\n` +
+          `6️⃣ Enter your M-Pesa PIN\n` +
+          `7️⃣ Confirm payment\n\n` +
           `✅ You will receive a confirmation SMS`,
-          { duration: 10000 }
+          { duration: 10000, icon: '📱' }
         );
         
         startPollingForConfirmation(response.data.data.reference);
@@ -138,9 +97,7 @@ export default function Deposit() {
       }
       
     } catch (error) {
-      console.error('❌ Deposit error:', error);
-      console.error('Status:', error.response?.status);
-      console.error('Data:', error.response?.data);
+      console.error('Deposit error:', error);
       toast.error(error.response?.data?.message || 'Failed to initiate deposit');
     } finally {
       setLoading(false);
@@ -156,10 +113,9 @@ export default function Deposit() {
       
       try {
         const token = localStorage.getItem('token');
-        const fullUrl = `${BACKEND_URL}/payments/check-deposit/${reference}`;
         const response = await axios({
           method: 'GET',
-          url: fullUrl,
+          url: `${BACKEND_URL}/payments/check-deposit/${reference}`,
           headers: {
             'Authorization': token ? `Bearer ${token}` : ''
           }
@@ -179,7 +135,7 @@ export default function Deposit() {
           navigate('/dashboard');
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
-          toast.info('⏳ Still waiting for confirmation. You can check your balance later.');
+          toast('⏳ Still waiting for confirmation. You can check your balance later.', { icon: '⏳' });
         }
       } catch (error) {
         console.error('Error checking deposit status:', error);
@@ -199,10 +155,9 @@ export default function Deposit() {
     
     try {
       const token = localStorage.getItem('token');
-      const fullUrl = `${BACKEND_URL}/payments/confirm-deposit`;
       const response = await axios({
         method: 'POST',
-        url: fullUrl,
+        url: `${BACKEND_URL}/payments/confirm-deposit`,
         data: {
           reference: pendingTransaction.reference,
           transactionId: transactionId,
@@ -241,21 +196,13 @@ export default function Deposit() {
       <div className="bg-[#1a1f2e] rounded-lg p-8">
         <h1 className="text-2xl font-bold text-white mb-6">Deposit Funds</h1>
         
-        {/* Balance Display */}
         <div className="mb-6 p-4 bg-[#2a2f3f] rounded-lg">
           <p className="text-gray-400 text-sm mb-2">Your Balance</p>
           <p className="text-2xl font-bold text-[#00cc88]">KSh {user?.balance?.toLocaleString() || 0}</p>
-          <div className="flex justify-between text-xs text-gray-500 mt-2">
-            <span>≈ UGX {((user?.balance || 0) * 28.5).toLocaleString()}</span>
-            <span>≈ MWK {((user?.balance || 0) * 12.8).toLocaleString()}</span>
-          </div>
         </div>
 
-        {/* Phone Number Input */}
         <div className="mb-4">
-          <label className="block text-gray-400 mb-2 text-sm">
-            M-Pesa Phone Number
-          </label>
+          <label className="block text-gray-400 mb-2 text-sm">M-Pesa Phone Number</label>
           <input
             type="tel"
             value={phoneNumber}
@@ -264,16 +211,10 @@ export default function Deposit() {
             className="w-full px-4 py-2 bg-[#2a2f3f] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2e7d32]"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">
-            This is your M-Pesa registered number
-          </p>
         </div>
 
-        {/* Amount Input */}
         <div className="mb-4">
-          <label className="block text-gray-400 mb-2 text-sm">
-            Amount (KSh)
-          </label>
+          <label className="block text-gray-400 mb-2 text-sm">Amount (KSh)</label>
           <input
             type="number"
             value={amount}
@@ -285,7 +226,6 @@ export default function Deposit() {
           />
         </div>
         
-        {/* Quick Amount Select */}
         <div className="mb-6">
           <p className="text-gray-400 mb-2 text-sm">Quick Select</p>
           <div className="grid grid-cols-4 gap-2">
@@ -302,7 +242,6 @@ export default function Deposit() {
           </div>
         </div>
 
-        {/* Payment Instructions Card */}
         <div className="mb-6 p-4 bg-[#2e7d32]/10 rounded-lg border border-[#2e7d32]/30">
           <div className="flex items-center mb-3">
             <span className="text-2xl mr-2">📱</span>
@@ -326,14 +265,6 @@ export default function Deposit() {
             ⚠️ Minimum deposit: KSh {minDeposit.toLocaleString()}
           </div>
         </div>
-        
-        {/* Test API Button */}
-        <button
-          onClick={testDepositApi}
-          className="w-full py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors mb-3 text-sm"
-        >
-          🔍 Test Deposit API
-        </button>
         
         <button
           onClick={handleInitiateDeposit}
