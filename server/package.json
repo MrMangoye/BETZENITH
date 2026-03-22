@@ -4,13 +4,14 @@
   "description": "BetFusion Production Server - Complete Betting Platform",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node --max-old-space-size=512 server.js",
+    "dev": "nodemon --max-old-space-size=512 server.js",
     "seed": "node seed/production-seed.js",
     "seed:matches": "node seed/matches.js",
     "seed:enhanced": "node seed/enhanced-seed.js",
     "seed:complete": "node seed/complete-seed.js",
     "seed:all": "npm run seed:complete",
+    "cleanup": "node scripts/cleanupMatches.js",
     "test": "node test-full-system.js",
     "test:api": "node test-odds-api.js && node test-sportmonks.js",
     "test:betting": "node test-betting.js"
