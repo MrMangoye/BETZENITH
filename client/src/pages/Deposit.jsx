@@ -33,6 +33,38 @@ export default function Deposit() {
     }
   };
 
+  // Test function to debug deposit API
+  const testDepositApi = async () => {
+    console.log('🔍 Testing deposit API...');
+    console.log('📍 Full URL:', `${window.location.origin}/api/payments/deposit`);
+    
+    try {
+      const response = await axios({
+        method: 'POST',
+        url: '/api/payments/deposit',
+        data: {
+          amount: 500,
+          paymentMethod: 'till',
+          currency: 'KES',
+          phoneNumber: '254712345678'
+        },
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log('✅ Deposit API test successful:', response.data);
+      toast.success('Deposit API working! Check console for details.');
+    } catch (error) {
+      console.error('❌ Deposit API test failed:');
+      console.error('Error:', error);
+      console.error('Error response:', error.response);
+      console.error('Error status:', error.response?.status);
+      console.error('Error method used:', error.config?.method);
+      console.error('Error URL:', error.config?.url);
+      toast.error(`Error: ${error.response?.status || error.message} - Check console for details`);
+    }
+  };
+
   const handleInitiateDeposit = async (e) => {
     e.preventDefault();
     
@@ -51,12 +83,25 @@ export default function Deposit() {
     setLoading(true);
     
     try {
-      const response = await axios.post('/api/payments/deposit', {
+      console.log('💰 Initiating deposit with:', {
         amount: amountNum,
         paymentMethod: 'till',
         currency: 'KES',
         phoneNumber
       });
+      
+      const response = await axios.post('/api/payments/deposit', {
+        amount: amountNum,
+        paymentMethod: 'till',
+        currency: 'KES',
+        phoneNumber
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('✅ Deposit response:', response.data);
       
       if (response.data && response.data.success) {
         setPendingTransaction(response.data.data);
@@ -87,7 +132,10 @@ export default function Deposit() {
       }
       
     } catch (error) {
-      console.error('Deposit error:', error);
+      console.error('❌ Deposit error:', error);
+      console.error('Error response:', error.response);
+      console.error('Error status:', error.response?.status);
+      console.error('Error data:', error.response?.data);
       toast.error(error.response?.data?.message || 'Failed to initiate deposit');
     } finally {
       setLoading(false);
@@ -256,6 +304,14 @@ export default function Deposit() {
             ⚠️ Minimum deposit: KSh {minDeposit.toLocaleString()}
           </div>
         </div>
+        
+        {/* Test API Button */}
+        <button
+          onClick={testDepositApi}
+          className="w-full py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors mb-3 text-sm"
+        >
+          🔍 Test Deposit API
+        </button>
         
         <button
           onClick={handleInitiateDeposit}
