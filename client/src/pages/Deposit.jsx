@@ -1,3 +1,41 @@
+// Add this at the beginning of your Deposit component
+useEffect(() => {
+  console.log('🔍 [DEBUG] Deposit component mounted');
+  console.log('🔍 [DEBUG] User authenticated:', !!user);
+  console.log('🔍 [DEBUG] User:', user);
+}, []);
+
+// Update fetchPaymentMethods function with more logging
+const fetchPaymentMethods = async () => {
+  console.log('🔍 [DEBUG] Fetching payment methods...');
+  console.log('🔍 [DEBUG] API_URL:', import.meta.env.VITE_API_URL);
+  console.log('🔍 [DEBUG] Token exists:', !!localStorage.getItem('token'));
+  
+  try {
+    const response = await axios.get('/api/payments/methods');
+    console.log('🔍 [DEBUG] Payment methods response status:', response.status);
+    console.log('🔍 [DEBUG] Payment methods response data:', response.data);
+    
+    if (response.data && response.data.success && response.data.data) {
+      const data = response.data.data;
+      console.log('🔍 [DEBUG] Payment methods data:', data);
+      setCurrencySymbol(data.symbol || 'KSh');
+      setCurrencyName(data.name || 'Kenyan Shilling');
+      setCurrencyFlag(data.flag || '🇰🇪');
+      setMinDeposit(data.minDeposit || 500);
+      setPaymentMethods(data.methods || []);
+      setExchangeRates(data.exchangeRates || {});
+      console.log('✅ [DEBUG] Payment methods set successfully');
+    } else {
+      console.warn('⚠️ [DEBUG] Unexpected response structure:', response.data);
+    }
+  } catch (error) {
+    console.error('❌ [DEBUG] Error fetching payment methods:', error);
+    console.error('❌ [DEBUG] Error response:', error.response?.data);
+    console.error('❌ [DEBUG] Error status:', error.response?.status);
+  }
+};
+
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
