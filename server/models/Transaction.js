@@ -20,9 +20,15 @@ const transactionSchema = new mongoose.Schema({
     required: true
   },
   
+  amountInKES: {
+    type: Number,
+    default: 0
+  },
+  
   currency: {
     type: String,
-    default: 'NGN'
+    default: 'KES',
+    enum: ['KES', 'UGX', 'MWK', 'USD', 'NGN']
   },
   
   balance: {
@@ -37,10 +43,10 @@ const transactionSchema = new mongoose.Schema({
     default: 'PENDING'
   },
   
-  // Payment Information
+  // Payment Information - ADDED 'till' HERE
   paymentMethod: {
     type: String,
-    enum: ['card', 'bank', 'mpesa', 'airtel', 'paystack', 'flutterwave', 'wallet', 'bonus']
+    enum: ['till', 'card', 'bank', 'mpesa', 'airtel', 'mobile', 'paystack', 'flutterwave', 'wallet', 'bonus']
   },
   paymentReference: String,
   paymentProvider: String,
@@ -107,7 +113,7 @@ transactionSchema.pre('save', async function(next) {
     const user = await User.findById(this.user);
     
     this.balance = {
-      before: user.balance - this.amount,
+      before: user.balance - (this.amountInKES || this.amount),
       after: user.balance
     };
   }
@@ -128,28 +134,26 @@ transactionSchema.methods.fail = async function(reason) {
   return this.save();
 };
 
-// Reverse transaction (for failed bets etc.)
+// Reverse transaction
 transactionSchema.methods.reverse = async function() {
   if (this.status !== 'COMPLETED') return;
   
   const User = mongoose.model('User');
   const user = await User.findById(this.user);
   
-  // Reverse the amount
   if (this.type === 'BET_PLACED') {
-    user.balance += Math.abs(this.amount);
+    user.balance += Math.abs(this.amountInKES || this.amount);
   } else if (this.type === 'DEPOSIT') {
-    user.balance -= this.amount;
+    user.balance -= (this.amountInKES || this.amount);
   }
   
   await user.save();
   
-  // Create reversal transaction
   const Transaction = mongoose.model('Transaction');
   await Transaction.create({
     user: this.user,
     type: 'ADJUSTMENT',
-    amount: -this.amount,
+    amount: -(this.amountInKES || this.amount),
     status: 'COMPLETED',
     description: `Reversal of ${this.reference}`,
     relatedTransaction: this._id
@@ -165,6 +169,7 @@ transactionSchema.virtual('summary').get(function() {
     reference: this.reference,
     type: this.type,
     amount: this.amount,
+    currency: this.currency,
     status: this.status,
     description: this.description,
     createdAt: this.createdAt
