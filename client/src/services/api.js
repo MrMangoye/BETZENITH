@@ -1,7 +1,10 @@
 // src/services/api.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// HARDCODE YOUR ACTUAL BACKEND URL
+const API_URL = 'https://betzenith-9dx1.onrender.com/api';
+
+console.log('🚀 API_URL is set to:', API_URL);
 
 const api = axios.create({
   baseURL: API_URL,
@@ -26,17 +29,14 @@ api.interceptors.request.use(
 // Add response interceptor to handle nested data
 api.interceptors.response.use(
   (response) => {
-    // If response has success flag and data property, return the data
     if (response.data && response.data.success === true && response.data.data !== undefined) {
       return { ...response, data: response.data.data };
     }
     return response;
   },
   (error) => {
-    // Handle token expiration
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      // Redirect to login if not already there
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
@@ -46,7 +46,6 @@ api.interceptors.response.use(
 );
 
 // ============ AUTH ============
-
 export const login = async (email, password) => {
   const response = await api.post('/auth/login', { email, password });
   return response.data;
@@ -73,7 +72,6 @@ export const refreshToken = async () => {
 };
 
 // ============ EMAIL VERIFICATION ============
-
 export const verifyEmail = async (token) => {
   const response = await api.post('/auth/verify-email', { token });
   return response.data;
@@ -90,7 +88,6 @@ export const checkEmailVerified = async () => {
 };
 
 // ============ PASSWORD MANAGEMENT ============
-
 export const forgotPassword = async (email) => {
   const response = await api.post('/auth/forgot-password', { email });
   return response.data;
@@ -107,13 +104,11 @@ export const changePassword = async (currentPassword, newPassword) => {
 };
 
 // ============ MATCHES ============
-
 export const getMatches = async () => {
   try {
     const response = await api.get('/matches');
     console.log('API Response:', response.data);
     
-    // Handle different response formats
     if (response.data && response.data.success === true && Array.isArray(response.data.data)) {
       return response.data.data;
     } else if (Array.isArray(response.data)) {
@@ -156,7 +151,6 @@ export const getLeagues = async () => {
 };
 
 // ============ BETS ============
-
 export const placeBet = async (betData) => {
   const response = await api.post('/bets', betData);
   return response.data;
@@ -188,7 +182,6 @@ export const cashoutBet = async (id) => {
 };
 
 // ============ USER ============
-
 export const updateProfile = async (profileData) => {
   const response = await api.put('/users/profile', profileData);
   return response.data;
@@ -235,7 +228,6 @@ export const selfExclude = async (duration) => {
 };
 
 // ============ PAYMENTS ============
-
 export const getPaymentMethods = async () => {
   const response = await api.get('/payments/methods');
   return response.data;
@@ -262,7 +254,6 @@ export const getTransaction = async (id) => {
 };
 
 // ============ KYC ============
-
 export const submitKYC = async (kycData) => {
   const response = await api.post('/kyc/submit', kycData);
   return response.data;
@@ -279,7 +270,6 @@ export const getKYCSubmission = async () => {
 };
 
 // ============ NOTIFICATIONS ============
-
 export const getNotifications = async () => {
   const response = await api.get('/notifications');
   return response.data;
@@ -301,7 +291,6 @@ export const markAllAsRead = async () => {
 };
 
 // ============ ADMIN ============
-
 export const getUsers = async (params = {}) => {
   const response = await api.get('/admin/users', { params });
   return response.data;
@@ -393,7 +382,6 @@ export const getLeagueReport = async () => {
 };
 
 // ============ LIVE ============
-
 export const getLiveMatchesList = async () => {
   const response = await api.get('/live/matches');
   return response.data;
