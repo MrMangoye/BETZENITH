@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+// Use the full backend URL - this is the key fix!
+const BACKEND_URL = 'https://betzenith-9dx1.onrender.com/api';
+
 export default function Deposit() {
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,25 +26,30 @@ export default function Deposit() {
 
   const fetchPaymentMethods = async () => {
     try {
-      const response = await axios.get('/api/payments/methods');
+      console.log('🔍 Fetching payment methods from:', `${BACKEND_URL}/payments/methods`);
+      const response = await axios.get(`${BACKEND_URL}/payments/methods`);
+      console.log('✅ Payment methods response:', response.data);
       if (response.data && response.data.success) {
         setMinDeposit(response.data.data.minDeposit || 500);
       }
     } catch (error) {
-      console.error('Error fetching payment methods:', error);
+      console.error('❌ Error fetching payment methods:', error);
       setMinDeposit(500);
     }
   };
 
-  // Test function to debug deposit API
   const testDepositApi = async () => {
+    const fullUrl = `${BACKEND_URL}/payments/deposit`;
     console.log('🔍 Testing deposit API...');
-    console.log('📍 Full URL:', `${window.location.origin}/api/payments/deposit`);
+    console.log('📍 Full URL:', fullUrl);
+    
+    const token = localStorage.getItem('token');
+    console.log('🔑 Token exists:', !!token);
     
     try {
       const response = await axios({
         method: 'POST',
-        url: '/api/payments/deposit',
+        url: fullUrl,
         data: {
           amount: 500,
           paymentMethod: 'till',
@@ -49,19 +57,18 @@ export default function Deposit() {
           phoneNumber: '254712345678'
         },
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         }
       });
       console.log('✅ Deposit API test successful:', response.data);
       toast.success('Deposit API working! Check console for details.');
     } catch (error) {
       console.error('❌ Deposit API test failed:');
-      console.error('Error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error status:', error.response?.status);
-      console.error('Error method used:', error.config?.method);
-      console.error('Error URL:', error.config?.url);
-      toast.error(`Error: ${error.response?.status || error.message} - Check console for details`);
+      console.error('URL attempted:', fullUrl);
+      console.error('Status:', error.response?.status);
+      console.error('Data:', error.response?.data);
+      toast.error(`Error: ${error.response?.status || error.message}`);
     }
   };
 
@@ -83,21 +90,22 @@ export default function Deposit() {
     setLoading(true);
     
     try {
-      console.log('💰 Initiating deposit with:', {
-        amount: amountNum,
-        paymentMethod: 'till',
-        currency: 'KES',
-        phoneNumber
-      });
+      const fullUrl = `${BACKEND_URL}/payments/deposit`;
+      console.log('💰 Initiating deposit to:', fullUrl);
       
-      const response = await axios.post('/api/payments/deposit', {
-        amount: amountNum,
-        paymentMethod: 'till',
-        currency: 'KES',
-        phoneNumber
-      }, {
+      const token = localStorage.getItem('token');
+      const response = await axios({
+        method: 'POST',
+        url: fullUrl,
+        data: {
+          amount: amountNum,
+          paymentMethod: 'till',
+          currency: 'KES',
+          phoneNumber
+        },
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         }
       });
       
@@ -106,7 +114,6 @@ export default function Deposit() {
       if (response.data && response.data.success) {
         setPendingTransaction(response.data.data);
         
-        // Show payment instructions
         toast.success(
           `Send KSh ${amountNum.toLocaleString()} to Till Number: 9960318`,
           { duration: 5000 }
@@ -125,7 +132,6 @@ export default function Deposit() {
           { duration: 10000 }
         );
         
-        // Start polling for confirmation
         startPollingForConfirmation(response.data.data.reference);
       } else {
         toast.error(response.data?.message || 'Failed to initiate deposit');
@@ -133,9 +139,8 @@ export default function Deposit() {
       
     } catch (error) {
       console.error('❌ Deposit error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error status:', error.response?.status);
-      console.error('Error data:', error.response?.data);
+      console.error('Status:', error.response?.status);
+      console.error('Data:', error.response?.data);
       toast.error(error.response?.data?.message || 'Failed to initiate deposit');
     } finally {
       setLoading(false);
@@ -144,19 +149,26 @@ export default function Deposit() {
 
   const startPollingForConfirmation = (reference) => {
     let attempts = 0;
-    const maxAttempts = 60; // 5 minutes
+    const maxAttempts = 60;
     
     const interval = setInterval(async () => {
       attempts++;
       
       try {
-        const response = await axios.get(`/api/payments/check-deposit/${reference}`);
+        const token = localStorage.getItem('token');
+        const fullUrl = `${BACKEND_URL}/payments/check-deposit/${reference}`;
+        const response = await axios({
+          method: 'GET',
+          url: fullUrl,
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : ''
+          }
+        });
         
         if (response.data && response.data.success && response.data.data.status === 'COMPLETED') {
           clearInterval(interval);
           toast.success('✅ Deposit confirmed! Your balance has been updated.');
           
-          // Trigger balance update
           window.dispatchEvent(new CustomEvent('balance-update', { 
             detail: { newBalance: (user?.balance || 0) + parseFloat(amount) }
           }));
@@ -186,10 +198,20 @@ export default function Deposit() {
     }
     
     try {
-      const response = await axios.post('/api/payments/confirm-deposit', {
-        reference: pendingTransaction.reference,
-        transactionId: transactionId,
-        phoneNumber
+      const token = localStorage.getItem('token');
+      const fullUrl = `${BACKEND_URL}/payments/confirm-deposit`;
+      const response = await axios({
+        method: 'POST',
+        url: fullUrl,
+        data: {
+          reference: pendingTransaction.reference,
+          transactionId: transactionId,
+          phoneNumber
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
       });
       
       if (response.data && response.data.success) {
