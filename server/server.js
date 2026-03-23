@@ -49,6 +49,11 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
+
+// ✅ Trust proxy so express-rate-limit works correctly behind Render/Vercel
+app.set('trust proxy', 1);
+
+
 // ============ CORS - UPDATED FOR YOUR DEPLOYMENT ============
 const allowedOrigins = [
   // Local development
