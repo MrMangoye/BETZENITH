@@ -1,613 +1,457 @@
-// server/routes/payments.js
 const express = require('express');
-const { protect } = require('../middleware/auth');
-const User = require('../models/User');
-const Transaction = require('../models/Transaction');
-const axios = require('axios');
-const crypto = require('crypto');
-const router = express.Router();
+const mongoose = require('mongoose');
+const http = require('http');
+const socketIO = require('socket.io');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const compression = require('compression');
+const morgan = require('morgan');
+const dotenv = require('dotenv');
+const path = require('path');
 
-// Exchange rates
-const EXCHANGE_RATES = {
-  KES: 1,
-  UGX: 28.5,
-  MWK: 12.8
-};
+dotenv.config();
 
-// Payment methods
-const PAYMENT_METHODS = {
-  KES: {
-    currency: 'KES',
-    symbol: 'KSh',
-    name: 'Kenyan Shilling',
-    flag: '🇰🇪',
-    minDeposit: 500,
-    tillNumber: '9960318',
-    methods: [
-      {
-        id: 'till',
-        name: 'M-Pesa Till Number',
-        number: '9960318',
-        type: 'Till Number',
-        action: 'Pay with M-Pesa'
+const app = express();
+const server = http.createServer(app);
+const io = socketIO(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE']
+  }
+});
+
+// ============ REQUEST LOGGING MIDDLEWARE (ADD THIS) ============
+app.use((req, res, next) => {
+  console.log(`📥 [${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (req.method === 'OPTIONS') {
+    console.log('   🔄 Preflight request detected');
+  }
+  if (req.headers.origin) {
+    console.log(`   🌐 Origin: ${req.headers.origin}`);
+  }
+  next();
+});
+
+// ============ CONNECT DATAFEEDSERVICE TO SOCKET.IO ============
+const DataFeedService = require('./services/DataFeedService');
+DataFeedService.setSocketIO(io);
+
+// ============ SECURITY MIDDLEWARE ============
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:5173', 'https://*.vercel.app', 'https://*.onrender.com'],
+      imgSrc: ["'self'", "data:", "https:"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
+    }
+  }
+}));
+
+// ============ RATE LIMITING ============
+const limiter = rateLimit({
+  windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api', limiter);
+
+// ✅ Trust proxy so express-rate-limit works correctly behind Render/Vercel
+app.set('trust proxy', 1);
+
+// ============ CORS - UPDATED FOR YOUR DEPLOYMENT ============
+const allowedOrigins = [
+  // Local development
+  'http://localhost:5173',
+  'http://localhost:3000',
+  
+  // Your Vercel deployments (free URLs)
+  'https://betfusion.vercel.app',
+  'https://betzenith.vercel.app',
+  'https://betzenith-client.vercel.app',
+  'https://betzenith-u8ji.vercel.app',
+  'https://betzenith-odux.vercel.app',
+  'https://betzenith-git-main-mrmangoyes-projects.vercel.app',
+  
+  // Your custom domain (if you buy one later)
+  'https://betznith.com',
+  'https://www.betznith.com',
+  
+  // Render backend (for testing)
+  'https://betfusion-api.onrender.com',
+  'https://betzenith-9dx1.onrender.com',
+  
+  // From environment variable (for flexibility)
+  process.env.CLIENT_URL
+].filter(Boolean); // Remove any undefined values
+
+// SUPER PERMISSIVE CORS MIDDLEWARE (ADD THIS FIRST)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Allow all origins for debugging
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Id');
+  res.header('Access-Control-Expose-Headers', 'Authorization, Content-Length, X-Total-Count');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    console.log('✅ [CORS] Preflight request handled for:', req.url);
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
+
+// CORS Middleware
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is allowed
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS allowed (exact match):', origin);
+      return callback(null, true);
+    }
+    
+    // Special: Allow any vercel.app subdomain dynamically
+    if (origin.endsWith('.vercel.app')) {
+      console.log('✅ CORS allowed (Vercel subdomain):', origin);
+      return callback(null, true);
+    }
+    
+    // Special: Allow any onrender.com subdomain dynamically
+    if (origin.endsWith('.onrender.com')) {
+      console.log('✅ CORS allowed (Render subdomain):', origin);
+      return callback(null, true);
+    }
+    
+    // Allow any origin for debugging (temporary)
+    console.log('⚠️ CORS allowing unknown origin for debugging:', origin);
+    return callback(null, true);
+  },
+  credentials: true,
+  exposedHeaders: ['Authorization'],
+  optionsSuccessStatus: 200
+}));
+
+// ============ ADDITIONAL CORS HEADERS MIDDLEWARE ============
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Allow any vercel.app or onrender.com origin
+  if (origin && (origin.endsWith('.vercel.app') || origin.endsWith('.onrender.com') || allowedOrigins.includes(origin))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Id');
+  }
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
+
+// ============ MIDDLEWARE ============
+app.use(compression());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(mongoSanitize());
+app.use(morgan('dev'));
+
+// ============ STATIC FILES ============
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ============ SOCKET.IO ============
+app.set('io', io);
+
+// Track online users and match subscribers
+const onlineUsers = new Map();
+const matchSubscribers = new Map();
+
+io.on('connection', (socket) => {
+  console.log('🔌 New client connected:', socket.id);
+  
+  // User authentication
+  socket.on('authenticate', (userId) => {
+    socket.join(`user-${userId}`);
+    onlineUsers.set(userId, socket.id);
+    io.emit('user-online', { userId, online: onlineUsers.size });
+    console.log(`👤 User ${userId} authenticated`);
+  });
+  
+  // Subscribe to match updates
+  socket.on('subscribe-to-match', (matchId) => {
+    socket.join(`match-${matchId}`);
+    
+    // Track subscribers
+    if (!matchSubscribers.has(matchId)) {
+      matchSubscribers.set(matchId, new Set());
+    }
+    matchSubscribers.get(matchId).add(socket.id);
+    
+    console.log(`📊 Socket ${socket.id} subscribed to match ${matchId} (${matchSubscribers.get(matchId).size} total)`);
+  });
+  
+  // Unsubscribe from match
+  socket.on('unsubscribe-from-match', (matchId) => {
+    socket.leave(`match-${matchId}`);
+    
+    if (matchSubscribers.has(matchId)) {
+      matchSubscribers.get(matchId).delete(socket.id);
+      if (matchSubscribers.get(matchId).size === 0) {
+        matchSubscribers.delete(matchId);
       }
-    ]
-  }
-};
-
-// M-Pesa Configuration (from your .env)
-const MPESA_CONFIG = {
-  consumerKey: process.env.MPESA_CONSUMER_KEY,
-  consumerSecret: process.env.MPESA_CONSUMER_SECRET,
-  passkey: process.env.MPESA_PASSKEY,
-  shortcode: process.env.MPESA_SHORTCODE || '9960318',
-  callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://betzenith-9dx1.onrender.com/api/payments/mpesa-callback',
-  environment: 'production' // Change to 'production' when live
-};
-
-// Log M-Pesa config on startup (without sensitive data)
-console.log('🚀 [DEBUG] M-Pesa Configuration loaded:');
-console.log('📝 [DEBUG] Environment:', MPESA_CONFIG.environment);
-console.log('🔑 [DEBUG] Consumer Key present:', !!MPESA_CONFIG.consumerKey);
-console.log('🔑 [DEBUG] Consumer Secret present:', !!MPESA_CONFIG.consumerSecret);
-console.log('🔑 [DEBUG] Passkey present:', !!MPESA_CONFIG.passkey);
-console.log('📞 [DEBUG] Shortcode:', MPESA_CONFIG.shortcode);
-console.log('🔗 [DEBUG] Callback URL:', MPESA_CONFIG.callbackUrl);
-
-// Store pending deposits
-const pendingDeposits = new Map();
-
-// Get M-Pesa Access Token
-async function getMpesaAccessToken() {
-  console.log('🔄 [DEBUG] Starting getMpesaAccessToken...');
-  console.log('📝 [DEBUG] Environment:', MPESA_CONFIG.environment);
-  console.log('🔑 [DEBUG] Consumer Key present:', !!MPESA_CONFIG.consumerKey);
-  console.log('🔑 [DEBUG] Consumer Secret present:', !!MPESA_CONFIG.consumerSecret);
+    }
+  });
   
-  try {
-    const auth = Buffer.from(`${MPESA_CONFIG.consumerKey}:${MPESA_CONFIG.consumerSecret}`).toString('base64');
-    console.log('✅ [DEBUG] Auth header generated (length):', auth.length);
-    
-    const url = MPESA_CONFIG.environment === 'production'
-      ? 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
-      : 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
-    
-    console.log('🌐 [DEBUG] Request URL:', url);
-    console.log('⏱️ [DEBUG] Timeout set to 10000ms');
-    
-    const response = await axios.get(url, {
-      headers: { Authorization: `Basic ${auth}` },
-      timeout: 10000
-    });
-    
-    console.log('✅ [DEBUG] Token received successfully');
-    console.log('🔑 [DEBUG] Access token (first 20 chars):', response.data.access_token.substring(0, 20) + '...');
-    console.log('⏰ [DEBUG] Token expires in:', response.data.expires_in, 'seconds');
-    
-    return response.data.access_token;
-  } catch (error) {
-    console.error('❌ [DEBUG] Error in getMpesaAccessToken:');
-    if (error.response) {
-      console.error('📡 [DEBUG] Response status:', error.response.status);
-      console.error('📄 [DEBUG] Response data:', JSON.stringify(error.response.data, null, 2));
-      console.error('📋 [DEBUG] Response headers:', error.response.headers);
-    } else if (error.request) {
-      console.error('🌐 [DEBUG] No response received. Request details:', error.request);
-    } else {
-      console.error('💥 [DEBUG] Error message:', error.message);
+  // Get all live matches - FOR THE LIVE TICKER
+  socket.on('get-live-matches', async () => {
+    try {
+      const Match = require('./models/Match');
+      const liveMatches = await Match.find({
+        status: { $in: ['LIVE', 'HALFTIME'] }
+      }).select('homeTeam awayTeam score minute status league');
+      
+      socket.emit('live-matches-list', liveMatches);
+      console.log(`📋 Sent ${liveMatches.length} live matches to client ${socket.id}`);
+    } catch (error) {
+      console.error('❌ Error fetching live matches:', error);
     }
-    console.error('📚 [DEBUG] Full error stack:', error.stack);
-    return null;
-  }
-}
-
-// Initiate STK Push (User receives prompt on phone)
-async function initiateSTKPush(phoneNumber, amount, accountReference) {
-  console.log('🚀 [DEBUG] Starting initiateSTKPush...');
-  console.log('📞 [DEBUG] Original phone number:', phoneNumber);
-  console.log('💰 [DEBUG] Amount:', amount);
-  console.log('🔖 [DEBUG] Account Reference:', accountReference);
+  });
   
-  try {
-    const token = await getMpesaAccessToken();
-    if (!token) {
-      console.error('❌ [DEBUG] No token received from getMpesaAccessToken');
-      throw new Error('Failed to get M-Pesa access token');
-    }
-    console.log('✅ [DEBUG] Token obtained successfully');
-    
-    // Generate correct timestamp (YYYYMMDDHHmmss)
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-    console.log('⏰ [DEBUG] Timestamp:', timestamp);
-    
-    // Generate password using shortcode, passkey, and timestamp
-    const passwordString = `${MPESA_CONFIG.shortcode}${MPESA_CONFIG.passkey}${timestamp}`;
-    console.log('🔐 [DEBUG] Password string (shortcode+passkey+timestamp):', passwordString);
-    console.log('🔐 [DEBUG] Password string length:', passwordString.length);
-    
-    const password = Buffer.from(passwordString).toString('base64');
-    console.log('✅ [DEBUG] Password generated (base64 length):', password.length);
-    
-    const url = MPESA_CONFIG.environment === 'production'
-      ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
-      : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
-    
-    console.log('🌐 [DEBUG] STK Push URL:', url);
-    
-    // Format phone number to 254XXXXXXXXX
-    let formattedPhone = phoneNumber.replace(/\D/g, '');
-    console.log('📞 [DEBUG] Phone after removing non-digits:', formattedPhone);
-    
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '254' + formattedPhone.substring(1);
-      console.log('📞 [DEBUG] Phone after converting from 0 to 254:', formattedPhone);
-    }
-    if (!formattedPhone.startsWith('254')) {
-      formattedPhone = '254' + formattedPhone;
-      console.log('📞 [DEBUG] Phone after adding 254 prefix:', formattedPhone);
+  // Join bet slip room (for cashout updates)
+  socket.on('join-bet-slip', (betId) => {
+    socket.join(`bet-${betId}`);
+  });
+  
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    // Remove from online users
+    for (const [userId, socketId] of onlineUsers.entries()) {
+      if (socketId === socket.id) {
+        onlineUsers.delete(userId);
+        io.emit('user-offline', { userId });
+        break;
+      }
     }
     
-    const requestBody = {
-      BusinessShortCode: MPESA_CONFIG.shortcode,
-      Password: password,
-      Timestamp: timestamp,
-      TransactionType: 'CustomerBuyGoodsOnline',
-      Amount: Math.round(amount),
-      PartyA: formattedPhone,
-      PartyB: MPESA_CONFIG.shortcode,
-      PhoneNumber: formattedPhone,
-      CallBackURL: MPESA_CONFIG.callbackUrl,
-      AccountReference: accountReference.substring(0, 12),
-      TransactionDesc: 'BetZenith Deposit'
-    };
-
-    console.log('📤 [DEBUG] STK Push Request Body (without password):', {
-      ...requestBody,
-      Password: '***'
-    });
-    console.log('🔗 [DEBUG] Callback URL being sent:', requestBody.CallBackURL);
-
-    const response = await axios.post(url, requestBody, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 15000
-    });
-
-    console.log('📥 [DEBUG] STK Push Response:', JSON.stringify(response.data, null, 2));
-    console.log('✅ [DEBUG] Response Code:', response.data.ResponseCode);
-    console.log('📝 [DEBUG] Response Description:', response.data.ResponseDescription);
-
-    return {
-      success: response.data.ResponseCode === '0',
-      checkoutRequestId: response.data.CheckoutRequestID,
-      merchantRequestId: response.data.MerchantRequestID,
-      responseCode: response.data.ResponseCode,
-      responseDescription: response.data.ResponseDescription
-    };
-  } catch (error) {
-    console.error('❌ [DEBUG] STK Push error:');
-    if (error.response) {
-      console.error('📡 [DEBUG] Response status:', error.response.status);
-      console.error('📄 [DEBUG] Response data:', JSON.stringify(error.response.data, null, 2));
-      console.error('📋 [DEBUG] Response headers:', error.response.headers);
-    } else if (error.request) {
-      console.error('🌐 [DEBUG] No response received. Request details:', error.request);
-    } else {
-      console.error('💥 [DEBUG] Error message:', error.message);
+    // Remove from match subscribers
+    for (const [matchId, subscribers] of matchSubscribers.entries()) {
+      if (subscribers.has(socket.id)) {
+        subscribers.delete(socket.id);
+        if (subscribers.size === 0) {
+          matchSubscribers.delete(matchId);
+        }
+      }
     }
-    console.error('📚 [DEBUG] Full error stack:', error.stack);
     
-    return {
-      success: false,
-      message: error.response?.data?.errorMessage || error.response?.data?.ResponseDescription || 'Failed to initiate payment'
-    };
-  }
-}
-
-// ============ ROUTES ============
-
-// Test endpoint
-router.get('/test', (req, res) => {
-  console.log('🧪 [DEBUG] Test endpoint called');
-  res.json({ 
-    success: true, 
-    message: 'Payments route working!', 
-    mpesaConfigured: !!MPESA_CONFIG.consumerKey,
-    environment: MPESA_CONFIG.environment,
-    shortcode: MPESA_CONFIG.shortcode,
-    callbackUrl: MPESA_CONFIG.callbackUrl
+    console.log('❌ Client disconnected:', socket.id);
   });
 });
 
-// Get payment methods
-router.get('/methods', protect, (req, res) => {
-  console.log('📋 [DEBUG] Get payment methods called for user:', req.user._id);
-  const userCurrency = req.user?.currency || 'KES';
-  const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
-  console.log('✅ [DEBUG] Returning methods for currency:', userCurrency);
-  res.json({ success: true, data: methods });
-});
-
-// Initiate deposit with real M-Pesa STK Push
-router.post('/deposit', protect, async (req, res) => {
-  console.log('💰 [DEBUG] Deposit endpoint called');
-  console.log('👤 [DEBUG] User ID:', req.user._id);
-  console.log('📝 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
-  
-  try {
-    const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber } = req.body;
+// ============ DATABASE CONNECTION ============
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+})
+  .then(() => {
+    console.log('✅ MongoDB connected successfully');
     
-    console.log('🔍 [DEBUG] Parsed deposit details:');
-    console.log('💰 Amount:', amount);
-    console.log('💳 Payment Method:', paymentMethod);
-    console.log('💱 Currency:', currency);
-    console.log('📞 Phone Number:', phoneNumber);
-    
-    const user = await User.findById(req.user._id);
-    console.log('👤 [DEBUG] User found:', user.username, 'Current balance:', user.balance);
-    
-    const depositAmount = Number(amount);
-    const currencyConfig = PAYMENT_METHODS[currency];
-    const minDeposit = currencyConfig?.minDeposit || 500;
-    
-    console.log('✅ [DEBUG] Deposit amount:', depositAmount);
-    console.log('📊 [DEBUG] Minimum deposit:', minDeposit);
-    
-    if (depositAmount < minDeposit) {
-      console.log('❌ [DEBUG] Amount below minimum:', depositAmount, '<', minDeposit);
-      return res.status(400).json({
-        success: false,
-        message: `Minimum deposit is ${currencyConfig?.symbol || 'KSh'} ${minDeposit.toLocaleString()}`
-      });
+    // ============ START REAL-TIME UPDATES ============
+    try {
+      const scheduler = require('./services/UpdateScheduler');
+      scheduler.start();
+      console.log('⏰ Real-time update scheduler started');
+    } catch (error) {
+      console.log('⚠️ Update scheduler not available yet');
     }
     
-    if (!phoneNumber) {
-      console.log('❌ [DEBUG] No phone number provided');
-      return res.status(400).json({
-        success: false,
-        message: 'Phone number is required'
-      });
-    }
+    // Check if we have matches, if not fetch from API
+    const Match = require('./models/Match');
     
-    // Generate reference
-    const reference = `DEP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    console.log('🔖 [DEBUG] Generated reference:', reference);
-    
-    // Convert amount to KES
-    let amountInKES = depositAmount;
-    if (currency !== 'KES') {
-      amountInKES = depositAmount / EXCHANGE_RATES[currency];
-      console.log('💱 [DEBUG] Converted amount to KES:', amountInKES);
-    }
-    
-    // Create pending transaction
-    console.log('📝 [DEBUG] Creating pending transaction...');
-    const transaction = await Transaction.create({
-      user: user._id,
-      type: 'DEPOSIT',
-      amount: depositAmount,
-      amountInKES: amountInKES,
-      currency: currency,
-      status: 'PENDING',
-      paymentMethod,
-      reference,
-      description: `Deposit of ${currencyConfig?.symbol || 'KSh'} ${depositAmount.toLocaleString()}`,
-      metadata: {
-        phoneNumber: phoneNumber,
-        initiatedAt: new Date().toISOString()
-      }
-    });
-    console.log('✅ [DEBUG] Transaction created with ID:', transaction._id);
-    
-    // Initiate M-Pesa STK Push
-    console.log('🚀 [DEBUG] Initiating STK Push...');
-    const mpesaResponse = await initiateSTKPush(phoneNumber, depositAmount, reference);
-    console.log('📥 [DEBUG] STK Push response:', JSON.stringify(mpesaResponse, null, 2));
-    
-    if (mpesaResponse.success) {
-      console.log('✅ [DEBUG] STK Push initiated successfully');
-      // Store pending deposit with checkout ID
-      pendingDeposits.set(reference, {
-        userId: user._id,
-        amount: depositAmount,
-        amountInKES: amountInKES,
-        phoneNumber: phoneNumber,
-        checkoutRequestId: mpesaResponse.checkoutRequestId,
-        transactionId: transaction._id,
-        createdAt: Date.now()
-      });
-      console.log('📦 [DEBUG] Pending deposit stored. Current pending count:', pendingDeposits.size);
-      
-      // Update transaction with checkout ID
-      transaction.metadata.checkoutRequestId = mpesaResponse.checkoutRequestId;
-      await transaction.save();
-      console.log('✅ [DEBUG] Transaction updated with checkout ID:', mpesaResponse.checkoutRequestId);
-      
-      res.json({
-        success: true,
-        message: 'Payment initiated. Check your phone for the M-Pesa prompt.',
-        data: {
-          reference,
-          amount: depositAmount,
-          currency: currency,
-          symbol: currencyConfig?.symbol || 'KSh',
-          checkoutRequestId: mpesaResponse.checkoutRequestId,
-          status: 'pending',
-          instructions: 'Enter your M-Pesa PIN on your phone to complete payment.'
-        }
-      });
-    } else {
-      console.log('❌ [DEBUG] STK Push failed');
-      // Failed to initiate
-      transaction.status = 'FAILED';
-      transaction.metadata.error = mpesaResponse.message;
-      await transaction.save();
-      console.log('❌ [DEBUG] Transaction marked as FAILED');
-    
-      // Debug tip: log the full error response for troubleshooting
-      console.error('Deposit failed:', {
-        message: mpesaResponse.message,
-        responseCode: mpesaResponse.responseCode,
-        responseDescription: mpesaResponse.responseDescription
-      });
-    
-      res.status(400).json({
-        success: false,
-        message: mpesaResponse.message || 'Failed to initiate payment. Please try again.'
-      });
-    }
-    
-  } catch (error) {
-    console.error('💥 [DEBUG] Deposit endpoint error:');
-    console.error('📝 [DEBUG] Error message:', error.message);
-    console.error('📚 [DEBUG] Error stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
-// M-Pesa Callback (Receives payment confirmation from Safaricom)
-router.post('/mpesa-callback', async (req, res) => {
-  console.log('='.repeat(80));
-  console.log('📱 [DEBUG] M-Pesa Callback received');
-  console.log('⏰ [DEBUG] Time:', new Date().toISOString());
-  console.log('📦 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
-  console.log('='.repeat(80));
-  
-  try {
-    const { Body } = req.body;
-    
-    if (Body && Body.stkCallback) {
-      console.log('✅ [DEBUG] Valid stkCallback found');
-      const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = Body.stkCallback;
-      
-      console.log('📋 [DEBUG] Callback details:');
-      console.log('🆔 MerchantRequestID:', MerchantRequestID);
-      console.log('🆔 CheckoutRequestID:', CheckoutRequestID);
-      console.log('🔢 ResultCode:', ResultCode);
-      console.log('📝 ResultDesc:', ResultDesc);
-      console.log('📊 CallbackMetadata:', JSON.stringify(CallbackMetadata, null, 2));
-      
-      // Find transaction by checkout request ID
-      let transaction = null;
-      let pending = null;
-      
-      console.log('🔍 [DEBUG] Searching pending deposits...');
-      for (const [ref, p] of pendingDeposits.entries()) {
-        console.log('📦 Checking reference:', ref, 'checkout ID:', p.checkoutRequestId);
-        if (p.checkoutRequestId === CheckoutRequestID) {
-          pending = p;
-          console.log('✅ [DEBUG] Found pending deposit for ref:', ref);
-          transaction = await Transaction.findById(p.transactionId);
-          break;
-        }
-      }
-      
-      if (!transaction) {
-        console.log('🔍 [DEBUG] Checking transactions by metadata...');
-        transaction = await Transaction.findOne({ 'metadata.checkoutRequestId': CheckoutRequestID });
-        if (transaction) {
-          console.log('✅ [DEBUG] Found transaction by metadata:', transaction._id);
-        } else {
-          console.log('❌ [DEBUG] No transaction found for CheckoutRequestID:', CheckoutRequestID);
-        }
-      }
-      
-      if (transaction && transaction.status === 'PENDING') {
-        console.log('✅ [DEBUG] Found pending transaction:', transaction._id);
-        
-        if (ResultCode === 0) {
-          // Payment successful
-          console.log('✅ [DEBUG] Payment successful! Processing...');
-          let amount = 0;
-          let phoneNumber = '';
-          
-          if (CallbackMetadata && CallbackMetadata.Item) {
-            console.log('📊 [DEBUG] Processing CallbackMetadata items...');
-            CallbackMetadata.Item.forEach(item => {
-              console.log('📦 Item:', item.Name, '=', item.Value);
-              if (item.Name === 'Amount') amount = item.Value;
-              if (item.Name === 'PhoneNumber') phoneNumber = item.Value;
-            });
-          }
-          
-          console.log('💰 [DEBUG] Amount from callback:', amount);
-          console.log('📞 [DEBUG] Phone number from callback:', phoneNumber);
-          
-          const user = await User.findById(transaction.user);
-          console.log('👤 [DEBUG] User found:', user.username, 'Current balance:', user.balance);
-          
-          const oldBalance = user.balance;
-          user.balance += transaction.amountInKES;
-          await user.save();
-          console.log('✅ [DEBUG] User balance updated:', oldBalance, '->', user.balance);
-          
-          transaction.status = 'COMPLETED';
-          transaction.processedAt = new Date();
-          transaction.metadata = {
-            ...transaction.metadata,
-            mpesaReceipt: MerchantRequestID,
-            checkoutRequestId: CheckoutRequestID,
-            confirmedAt: new Date().toISOString(),
-            resultCode: ResultCode,
-            resultDesc: ResultDesc,
-            amount: amount,
-            phoneNumber: phoneNumber
-          };
-          transaction.balance = {
-            before: oldBalance,
-            after: user.balance
-          };
-          await transaction.save();
-          console.log('✅ [DEBUG] Transaction marked as COMPLETED');
-          
-          // Remove from pending
-          if (pending) {
-            pendingDeposits.delete(transaction.reference);
-            console.log('🗑️ [DEBUG] Removed from pending deposits. Remaining:', pendingDeposits.size);
-          }
-          
-          // Emit socket event for real-time update
-          const io = req.app.get('io');
-          if (io) {
-            console.log('📡 [DEBUG] Emitting socket events...');
-            io.to(`user-${user._id}`).emit('balance-update', {
-              newBalance: user.balance,
-              amount: transaction.amount,
-              transaction: transaction.summary
-            });
-            
-            io.to(`user-${user._id}`).emit('notification', {
-              type: 'success',
-              title: 'Deposit Successful!',
-              message: `${transaction.amount.toLocaleString()} ${transaction.currency} has been added to your account.`
-            });
-            console.log('✅ [DEBUG] Socket events emitted');
-          } else {
-            console.log('⚠️ [DEBUG] No io instance found');
-          }
-          
-          console.log(`✅ [DEBUG] Deposit confirmed for ${user.username}: ${transaction.amount} ${transaction.currency}`);
-        } else {
-          // Payment failed
-          console.log('❌ [DEBUG] Payment failed with ResultCode:', ResultCode);
-          console.log('📝 [DEBUG] Result Description:', ResultDesc);
-          
-          transaction.status = 'FAILED';
-          transaction.metadata = {
-            ...transaction.metadata,
-            resultCode: ResultCode,
-            resultDesc: ResultDesc,
-            failedAt: new Date().toISOString()
-          };
-          await transaction.save();
-          console.log('❌ [DEBUG] Transaction marked as FAILED');
-          
-          console.log(`❌ [DEBUG] Deposit failed: ${ResultDesc}`);
+    Match.countDocuments().then(async (count) => {
+      if (count === 0) {
+        console.log('📋 No matches found, fetching from API...');
+        try {
+          const feedService = require('./services/DataFeedService');
+          const fixtures = await feedService.fetchTodaysFixtures();
+          console.log(`✅ Fetched ${fixtures.length} fixtures from API`);
+        } catch (error) {
+          console.log('⚠️ Could not fetch from API:', error.message);
         }
       } else {
-        console.log('⚠️ [DEBUG] Transaction not found or not pending');
-        if (transaction) {
-          console.log('📝 Transaction status:', transaction.status);
-        }
+        console.log(`📊 Found ${count} existing matches in database`);
       }
-    } else {
-      console.log('❌ [DEBUG] Invalid callback body - no stkCallback found');
-      console.log('📦 [DEBUG] Body structure:', Object.keys(req.body));
-    }
-    
-    console.log('✅ [DEBUG] Sending success response to M-Pesa');
-    // Always return success to M-Pesa
-    res.json({ ResultCode: 0, ResultDesc: 'Success' });
-    
-  } catch (error) {
-    console.error('💥 [DEBUG] M-Pesa callback error:');
-    console.error('📝 [DEBUG] Error message:', error.message);
-    console.error('📚 [DEBUG] Error stack:', error.stack);
-    res.json({ ResultCode: 1, ResultDesc: 'Failed' });
-  }
+    });
+  })
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  });
+
+// Handle MongoDB connection events
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB error:', err);
 });
 
-// Check deposit status
-router.get('/check-deposit/:reference', protect, async (req, res) => {
-  console.log('🔍 [DEBUG] Check deposit status for reference:', req.params.reference);
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️ MongoDB disconnected');
+});
+
+// ============ ROUTES ============
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
+app.use('/api/matches', require('./routes/matches'));
+app.use('/api/bets', require('./routes/bets'));
+app.use('/api/payments', require('./routes/payments'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/live', require('./routes/live'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/kyc', require('./routes/kyc'));
+app.use('/api/odds', require('./routes/odds'));
+// Add after your other routes
+app.use('/api/ai', require('./routes/ai'));
+// Add after other routes
+app.use('/api/ai-matches', require('./routes/aiMatches'));
+
+// Start the AI Match Service
+const aiMatchService = require('./services/aiMatchService');
+aiMatchService.start();
+
+// ============ DEBUG ROUTES ============
+app.get('/debug-routes', (req, res) => {
   try {
-    const { reference } = req.params;
-    const transaction = await Transaction.findOne({ reference, user: req.user._id });
+    const routes = [];
     
-    if (!transaction) {
-      console.log('❌ [DEBUG] Transaction not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
+    function extractRoutes(stack, basePath = '') {
+      if (!stack || !stack.forEach) return;
+      
+      stack.forEach(layer => {
+        if (layer.route) {
+          // This is a route
+          const methods = Object.keys(layer.route.methods).join(',');
+          routes.push({
+            path: basePath + layer.route.path,
+            methods: methods.toUpperCase()
+          });
+        } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+          // This is a router middleware (like our auth router)
+          let routerPath = basePath;
+          
+          // Try to get the base path for this router
+          if (layer.regexp) {
+            let pathStr = layer.regexp.toString();
+            // Extract the path pattern
+            const match = pathStr.match(/\/\^\\\/(.*?)(?:\\\/\?|\\\?)/);
+            if (match && match[1]) {
+              routerPath = basePath + '/' + match[1].replace(/\\\//g, '/');
+            } else {
+              routerPath = basePath;
+            }
+          }
+          
+          // Extract routes from this router
+          extractRoutes(layer.handle.stack, routerPath);
+        }
       });
     }
     
-    console.log('✅ [DEBUG] Transaction found, status:', transaction.status);
-    res.json({
-      success: true,
-      data: {
-        status: transaction.status,
-        reference: transaction.reference,
-        amount: transaction.amount,
-        currency: transaction.currency,
-        createdAt: transaction.createdAt,
-        processedAt: transaction.processedAt,
-        checkoutRequestId: transaction.metadata?.checkoutRequestId
-      }
-    });
-  } catch (error) {
-    console.error('💥 [DEBUG] Error checking deposit:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Get balance
-router.get('/balance', protect, async (req, res) => {
-  console.log('💰 [DEBUG] Get balance for user:', req.user._id);
-  try {
-    const user = await User.findById(req.user._id);
-    const balances = {
-      KES: user.balance,
-      UGX: user.balance * EXCHANGE_RATES.UGX,
-      MWK: user.balance * EXCHANGE_RATES.MWK
-    };
+    extractRoutes(app._router.stack);
     
-    console.log('✅ [DEBUG] Balance:', user.balance);
+    // Filter to show only payment-related routes
+    const paymentRoutes = routes.filter(r => r.path.includes('payments'));
+    
     res.json({
       success: true,
-      data: {
-        balance: user.balance,
-        balances,
-        symbols: { KES: 'KSh', UGX: 'USh', MWK: 'MK' }
-      }
+      totalRoutes: routes.length,
+      paymentRoutes: paymentRoutes,
+      allRoutes: routes
     });
   } catch (error) {
-    console.error('💥 [DEBUG] Error getting balance:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 });
 
-// Simple balance for header
-router.get('/balance-simple', protect, async (req, res) => {
-  console.log('💰 [DEBUG] Get simple balance for user:', req.user._id);
-  try {
-    const user = await User.findById(req.user._id);
-    console.log('✅ [DEBUG] Balance:', user.balance);
-    res.json({
-      success: true,
-      data: { balance: user.balance, currency: 'KES', symbol: 'KSh' }
-    });
-  } catch (error) {
-    console.error('💥 [DEBUG] Error getting simple balance:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+// Test endpoint for payments
+app.get('/api/payments-test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Payments API is accessible',
+    timestamp: new Date().toISOString()
+  });
 });
 
-module.exports = router;
+// ============ HEALTH CHECK ============
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV,
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    onlineUsers: onlineUsers.size,
+    corsAllowedOrigins: allowedOrigins
+  });
+});
+
+// ============ 404 HANDLER ============
+app.use((req, res) => {
+  console.log(`❌ 404 - Route not found: ${req.method} ${req.url}`);
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.url}`
+  });
+});
+
+// ============ ERROR HANDLER ============
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err.stack);
+  
+  const status = err.status || 500;
+  const message = err.message || 'Internal server error';
+  
+  // Don't leak error details in production
+  const error = process.env.NODE_ENV === 'production' ? {} : { stack: err.stack };
+  
+  res.status(status).json({
+    success: false,
+    message,
+    ...error
+  });
+});
+
+// ============ START SERVER ============
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('='.repeat(60));
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📱 Client URL: ${process.env.CLIENT_URL}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+  console.log('✅ CORS allowed origins:', allowedOrigins);
+  console.log('✅ Dynamic CORS: Any *.vercel.app and *.onrender.com subdomains are allowed');
+  console.log('='.repeat(60));
+});
