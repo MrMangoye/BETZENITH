@@ -42,7 +42,7 @@ const MPESA_CONFIG = {
   passkey: process.env.MPESA_PASSKEY,
   shortcode: process.env.MPESA_SHORTCODE || '9960318',
   callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://betzenith-9dx1.onrender.com/api/payments/mpesa-callback',
-  environment: 'sandbox' // Change to 'production' when live
+  environment: 'production' // Change to 'production' when live
 };
 
 // Store pending deposits
@@ -76,9 +76,14 @@ async function initiateSTKPush(phoneNumber, amount, accountReference) {
     if (!token) {
       throw new Error('Failed to get M-Pesa access token');
     }
+// Generate correct timestamp (YYYYMMDDHHmmss)
+const now = new Date();
+const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
 
-    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
-    const password = Buffer.from(`${MPESA_CONFIG.shortcode}${MPESA_CONFIG.passkey}${timestamp}`).toString('base64');
+// Generate password using shortcode, passkey, and timestamp
+const password = Buffer.from(
+  `${MPESA_CONFIG.shortcode}${MPESA_CONFIG.passkey}${timestamp}`
+).toString('base64');
     
     const url = MPESA_CONFIG.environment === 'production'
       ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
@@ -97,7 +102,7 @@ async function initiateSTKPush(phoneNumber, amount, accountReference) {
       BusinessShortCode: MPESA_CONFIG.shortcode,
       Password: password,
       Timestamp: timestamp,
-      TransactionType: 'CustomerPayBillOnline',
+      TransactionType: 'CustomerBuyGoodsOnline',
       Amount: Math.round(amount),
       PartyA: formattedPhone,
       PartyB: MPESA_CONFIG.shortcode,
