@@ -1,457 +1,574 @@
+// server/routes/payments.js
 const express = require('express');
-const mongoose = require('mongoose');
-const http = require('http');
-const socketIO = require('socket.io');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
-const compression = require('compression');
-const morgan = require('morgan');
-const dotenv = require('dotenv');
-const path = require('path');
+const { protect } = require('../middleware/auth');
+const User = require('../models/User');
+const Transaction = require('../models/Transaction');
+const axios = require('axios');
+const crypto = require('crypto');
+const router = express.Router();
 
-dotenv.config();
+// Exchange rates
+const EXCHANGE_RATES = {
+  KES: 1,
+  UGX: 28.5,
+  MWK: 12.8
+};
 
-const app = express();
-const server = http.createServer(app);
-const io = socketIO(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
-  }
-});
-
-// ============ REQUEST LOGGING MIDDLEWARE (ADD THIS) ============
-app.use((req, res, next) => {
-  console.log(`📥 [${new Date().toISOString()}] ${req.method} ${req.url}`);
-  if (req.method === 'OPTIONS') {
-    console.log('   🔄 Preflight request detected');
-  }
-  if (req.headers.origin) {
-    console.log(`   🌐 Origin: ${req.headers.origin}`);
-  }
-  next();
-});
-
-// ============ CONNECT DATAFEEDSERVICE TO SOCKET.IO ============
-const DataFeedService = require('./services/DataFeedService');
-DataFeedService.setSocketIO(io);
-
-// ============ SECURITY MIDDLEWARE ============
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:5173', 'https://*.vercel.app', 'https://*.onrender.com'],
-      imgSrc: ["'self'", "data:", "https:"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
-    }
-  }
-}));
-
-// ============ RATE LIMITING ============
-const limiter = rateLimit({
-  windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api', limiter);
-
-// ✅ Trust proxy so express-rate-limit works correctly behind Render/Vercel
-app.set('trust proxy', 1);
-
-// ============ CORS - UPDATED FOR YOUR DEPLOYMENT ============
-const allowedOrigins = [
-  // Local development
-  'http://localhost:5173',
-  'http://localhost:3000',
-  
-  // Your Vercel deployments (free URLs)
-  'https://betfusion.vercel.app',
-  'https://betzenith.vercel.app',
-  'https://betzenith-client.vercel.app',
-  'https://betzenith-u8ji.vercel.app',
-  'https://betzenith-odux.vercel.app',
-  'https://betzenith-git-main-mrmangoyes-projects.vercel.app',
-  
-  // Your custom domain (if you buy one later)
-  'https://betznith.com',
-  'https://www.betznith.com',
-  
-  // Render backend (for testing)
-  'https://betfusion-api.onrender.com',
-  'https://betzenith-9dx1.onrender.com',
-  
-  // From environment variable (for flexibility)
-  process.env.CLIENT_URL
-].filter(Boolean); // Remove any undefined values
-
-// SUPER PERMISSIVE CORS MIDDLEWARE (ADD THIS FIRST)
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Allow all origins for debugging
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Id');
-  res.header('Access-Control-Expose-Headers', 'Authorization, Content-Length, X-Total-Count');
-  res.header('Access-Control-Max-Age', '86400'); // 24 hours
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    console.log('✅ [CORS] Preflight request handled for:', req.url);
-    return res.sendStatus(200);
-  }
-  
-  next();
-});
-
-// CORS Middleware
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is allowed
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      console.log('✅ CORS allowed (exact match):', origin);
-      return callback(null, true);
-    }
-    
-    // Special: Allow any vercel.app subdomain dynamically
-    if (origin.endsWith('.vercel.app')) {
-      console.log('✅ CORS allowed (Vercel subdomain):', origin);
-      return callback(null, true);
-    }
-    
-    // Special: Allow any onrender.com subdomain dynamically
-    if (origin.endsWith('.onrender.com')) {
-      console.log('✅ CORS allowed (Render subdomain):', origin);
-      return callback(null, true);
-    }
-    
-    // Allow any origin for debugging (temporary)
-    console.log('⚠️ CORS allowing unknown origin for debugging:', origin);
-    return callback(null, true);
-  },
-  credentials: true,
-  exposedHeaders: ['Authorization'],
-  optionsSuccessStatus: 200
-}));
-
-// ============ ADDITIONAL CORS HEADERS MIDDLEWARE ============
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Allow any vercel.app or onrender.com origin
-  if (origin && (origin.endsWith('.vercel.app') || origin.endsWith('.onrender.com') || allowedOrigins.includes(origin))) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Id');
-  }
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  
-  next();
-});
-
-// ============ MIDDLEWARE ============
-app.use(compression());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(mongoSanitize());
-app.use(morgan('dev'));
-
-// ============ STATIC FILES ============
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// ============ SOCKET.IO ============
-app.set('io', io);
-
-// Track online users and match subscribers
-const onlineUsers = new Map();
-const matchSubscribers = new Map();
-
-io.on('connection', (socket) => {
-  console.log('🔌 New client connected:', socket.id);
-  
-  // User authentication
-  socket.on('authenticate', (userId) => {
-    socket.join(`user-${userId}`);
-    onlineUsers.set(userId, socket.id);
-    io.emit('user-online', { userId, online: onlineUsers.size });
-    console.log(`👤 User ${userId} authenticated`);
-  });
-  
-  // Subscribe to match updates
-  socket.on('subscribe-to-match', (matchId) => {
-    socket.join(`match-${matchId}`);
-    
-    // Track subscribers
-    if (!matchSubscribers.has(matchId)) {
-      matchSubscribers.set(matchId, new Set());
-    }
-    matchSubscribers.get(matchId).add(socket.id);
-    
-    console.log(`📊 Socket ${socket.id} subscribed to match ${matchId} (${matchSubscribers.get(matchId).size} total)`);
-  });
-  
-  // Unsubscribe from match
-  socket.on('unsubscribe-from-match', (matchId) => {
-    socket.leave(`match-${matchId}`);
-    
-    if (matchSubscribers.has(matchId)) {
-      matchSubscribers.get(matchId).delete(socket.id);
-      if (matchSubscribers.get(matchId).size === 0) {
-        matchSubscribers.delete(matchId);
+// Payment methods
+const PAYMENT_METHODS = {
+  KES: {
+    currency: 'KES',
+    symbol: 'KSh',
+    name: 'Kenyan Shilling',
+    flag: '🇰🇪',
+    minDeposit: 500,
+    tillNumber: '9960318',
+    methods: [
+      {
+        id: 'till',
+        name: 'M-Pesa Till Number',
+        number: '9960318',
+        type: 'Till Number',
+        action: 'Pay with M-Pesa'
       }
-    }
-  });
-  
-  // Get all live matches - FOR THE LIVE TICKER
-  socket.on('get-live-matches', async () => {
-    try {
-      const Match = require('./models/Match');
-      const liveMatches = await Match.find({
-        status: { $in: ['LIVE', 'HALFTIME'] }
-      }).select('homeTeam awayTeam score minute status league');
-      
-      socket.emit('live-matches-list', liveMatches);
-      console.log(`📋 Sent ${liveMatches.length} live matches to client ${socket.id}`);
-    } catch (error) {
-      console.error('❌ Error fetching live matches:', error);
-    }
-  });
-  
-  // Join bet slip room (for cashout updates)
-  socket.on('join-bet-slip', (betId) => {
-    socket.join(`bet-${betId}`);
-  });
-  
-  // Handle disconnection
-  socket.on('disconnect', () => {
-    // Remove from online users
-    for (const [userId, socketId] of onlineUsers.entries()) {
-      if (socketId === socket.id) {
-        onlineUsers.delete(userId);
-        io.emit('user-offline', { userId });
-        break;
-      }
-    }
-    
-    // Remove from match subscribers
-    for (const [matchId, subscribers] of matchSubscribers.entries()) {
-      if (subscribers.has(socket.id)) {
-        subscribers.delete(socket.id);
-        if (subscribers.size === 0) {
-          matchSubscribers.delete(matchId);
-        }
-      }
-    }
-    
-    console.log('❌ Client disconnected:', socket.id);
-  });
-});
+    ]
+  }
+};
 
-// ============ DATABASE CONNECTION ============
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-})
-  .then(() => {
-    console.log('✅ MongoDB connected successfully');
+// M-Pesa Configuration (from your .env)
+const MPESA_CONFIG = {
+  consumerKey: process.env.MPESA_CONSUMER_KEY,
+  consumerSecret: process.env.MPESA_CONSUMER_SECRET,
+  passkey: process.env.MPESA_PASSKEY,
+  shortcode: process.env.MPESA_SHORTCODE || '9960318',
+  callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://betzenith-9dx1.onrender.com/api/payments/mpesa-callback',
+  environment: process.env.MPESA_ENVIRONMENT || 'sandbox' // Default to sandbox for testing
+};
+
+// Log M-Pesa config on startup
+console.log('🚀 [DEBUG] M-Pesa Configuration loaded:');
+console.log('📝 [DEBUG] Environment:', MPESA_CONFIG.environment);
+console.log('🔑 [DEBUG] Consumer Key present:', !!MPESA_CONFIG.consumerKey);
+console.log('🔑 [DEBUG] Consumer Secret present:', !!MPESA_CONFIG.consumerSecret);
+console.log('🔑 [DEBUG] Passkey present:', !!MPESA_CONFIG.passkey);
+console.log('📞 [DEBUG] Shortcode:', MPESA_CONFIG.shortcode);
+console.log('🔗 [DEBUG] Callback URL:', MPESA_CONFIG.callbackUrl);
+
+// Store pending deposits
+const pendingDeposits = new Map();
+
+// Get M-Pesa Access Token
+async function getMpesaAccessToken() {
+  console.log('🔄 [DEBUG] Starting getMpesaAccessToken...');
+  console.log('📝 [DEBUG] Environment:', MPESA_CONFIG.environment);
+  
+  try {
+    const auth = Buffer.from(`${MPESA_CONFIG.consumerKey}:${MPESA_CONFIG.consumerSecret}`).toString('base64');
+    console.log('✅ [DEBUG] Auth header generated (length):', auth.length);
     
-    // ============ START REAL-TIME UPDATES ============
-    try {
-      const scheduler = require('./services/UpdateScheduler');
-      scheduler.start();
-      console.log('⏰ Real-time update scheduler started');
-    } catch (error) {
-      console.log('⚠️ Update scheduler not available yet');
-    }
+    const url = MPESA_CONFIG.environment === 'production'
+      ? 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
+      : 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
     
-    // Check if we have matches, if not fetch from API
-    const Match = require('./models/Match');
+    console.log('🌐 [DEBUG] Token URL:', url);
     
-    Match.countDocuments().then(async (count) => {
-      if (count === 0) {
-        console.log('📋 No matches found, fetching from API...');
-        try {
-          const feedService = require('./services/DataFeedService');
-          const fixtures = await feedService.fetchTodaysFixtures();
-          console.log(`✅ Fetched ${fixtures.length} fixtures from API`);
-        } catch (error) {
-          console.log('⚠️ Could not fetch from API:', error.message);
-        }
-      } else {
-        console.log(`📊 Found ${count} existing matches in database`);
-      }
+    const response = await axios.get(url, {
+      headers: { Authorization: `Basic ${auth}` },
+      timeout: 10000
     });
-  })
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+    
+    console.log('✅ [DEBUG] Token received successfully');
+    console.log('🔑 [DEBUG] Access token (first 20 chars):', response.data.access_token.substring(0, 20) + '...');
+    
+    return response.data.access_token;
+  } catch (error) {
+    console.error('❌ [DEBUG] Error in getMpesaAccessToken:');
+    if (error.response) {
+      console.error('📡 [DEBUG] Response status:', error.response.status);
+      console.error('📄 [DEBUG] Response data:', JSON.stringify(error.response.data, null, 2));
+    } else if (error.request) {
+      console.error('🌐 [DEBUG] No response received');
+    } else {
+      console.error('💥 [DEBUG] Error message:', error.message);
+    }
+    return null;
+  }
+}
 
-// Handle MongoDB connection events
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB error:', err);
-});
+// Initiate STK Push with enhanced logging
+async function initiateSTKPush(phoneNumber, amount, accountReference) {
+  console.log('='.repeat(80));
+  console.log('🚀 [DEBUG] Starting initiateSTKPush...');
+  console.log('📞 [DEBUG] Original phone number:', phoneNumber);
+  console.log('💰 [DEBUG] Amount:', amount);
+  console.log('🔖 [DEBUG] Account Reference:', accountReference);
+  console.log('🔧 [DEBUG] Environment:', MPESA_CONFIG.environment);
+  console.log('🔧 [DEBUG] Shortcode:', MPESA_CONFIG.shortcode);
+  console.log('='.repeat(80));
+  
+  try {
+    // Get access token
+    console.log('🔑 [DEBUG] Getting access token...');
+    const token = await getMpesaAccessToken();
+    if (!token) {
+      console.error('❌ [DEBUG] Failed to get access token');
+      return {
+        success: false,
+        message: 'Failed to authenticate with M-Pesa. Please check your credentials.'
+      };
+    }
+    console.log('✅ [DEBUG] Access token obtained successfully');
+    
+    // Format phone number
+    console.log('📞 [DEBUG] Formatting phone number...');
+    let formattedPhone = phoneNumber.replace(/\D/g, '');
+    console.log('📞 [DEBUG] After removing non-digits:', formattedPhone);
+    
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '254' + formattedPhone.substring(1);
+      console.log('📞 [DEBUG] After converting from 0:', formattedPhone);
+    } else if (formattedPhone.length === 9 && !formattedPhone.startsWith('254')) {
+      formattedPhone = '254' + formattedPhone;
+      console.log('📞 [DEBUG] After adding 254 prefix:', formattedPhone);
+    } else if (formattedPhone.length === 12 && formattedPhone.startsWith('254')) {
+      console.log('📞 [DEBUG] Already in correct format:', formattedPhone);
+    } else {
+      console.error('❌ [DEBUG] Invalid phone number format:', formattedPhone);
+      return {
+        success: false,
+        message: 'Invalid phone number format. Please use a valid Kenyan number (e.g., 0712345678)'
+      };
+    }
+    
+    // Generate timestamp
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+    console.log('⏰ [DEBUG] Timestamp:', timestamp);
+    
+    // Use correct shortcode for environment
+    const businessShortCode = MPESA_CONFIG.environment === 'sandbox' ? '174379' : MPESA_CONFIG.shortcode;
+    console.log('🏢 [DEBUG] Business Shortcode:', businessShortCode);
+    
+    // Generate password
+    const passwordString = `${businessShortCode}${MPESA_CONFIG.passkey}${timestamp}`;
+    console.log('🔐 [DEBUG] Password string length:', passwordString.length);
+    const password = Buffer.from(passwordString).toString('base64');
+    console.log('✅ [DEBUG] Password generated (base64 length):', password.length);
+    
+    const url = MPESA_CONFIG.environment === 'production'
+      ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
+      : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
+    
+    console.log('🌐 [DEBUG] STK Push URL:', url);
+    
+    const requestBody = {
+      BusinessShortCode: businessShortCode,
+      Password: password,
+      Timestamp: timestamp,
+      TransactionType: 'CustomerPayBillOnline',
+      Amount: Math.round(amount),
+      PartyA: formattedPhone,
+      PartyB: businessShortCode,
+      PhoneNumber: formattedPhone,
+      CallBackURL: MPESA_CONFIG.callbackUrl,
+      AccountReference: accountReference.substring(0, 12),
+      TransactionDesc: 'BetZenith Deposit'
+    };
 
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB disconnected');
-});
+    console.log('📤 [DEBUG] STK Push Request:');
+    console.log('   BusinessShortCode:', requestBody.BusinessShortCode);
+    console.log('   TransactionType:', requestBody.TransactionType);
+    console.log('   Amount:', requestBody.Amount);
+    console.log('   PartyA:', requestBody.PartyA);
+    console.log('   PartyB:', requestBody.PartyB);
+    console.log('   PhoneNumber:', requestBody.PhoneNumber);
+    console.log('   AccountReference:', requestBody.AccountReference);
+    console.log('   CallBackURL:', requestBody.CallBackURL);
+    console.log('   Timestamp:', requestBody.Timestamp);
+    console.log('   Password:', '***');
+
+    console.log('⏱️ [DEBUG] Sending request to Safaricom...');
+    const response = await axios.post(url, requestBody, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    console.log('📥 [DEBUG] STK Push Response:', JSON.stringify(response.data, null, 2));
+    console.log('✅ [DEBUG] Response Code:', response.data.ResponseCode);
+    console.log('📝 [DEBUG] Response Description:', response.data.ResponseDescription);
+    
+    if (response.data.ResponseCode === '0') {
+      console.log('✅✅✅ [DEBUG] STK Push initiated successfully!');
+      console.log('📱 [DEBUG] M-Pesa prompt should appear on phone:', formattedPhone);
+      console.log('🆔 [DEBUG] CheckoutRequestID:', response.data.CheckoutRequestID);
+    } else {
+      console.log('❌ [DEBUG] STK Push failed with ResponseCode:', response.data.ResponseCode);
+      console.log('❌ [DEBUG] Reason:', response.data.ResponseDescription);
+    }
+
+    return {
+      success: response.data.ResponseCode === '0',
+      checkoutRequestId: response.data.CheckoutRequestID,
+      merchantRequestId: response.data.MerchantRequestID,
+      responseCode: response.data.ResponseCode,
+      responseDescription: response.data.ResponseDescription
+    };
+  } catch (error) {
+    console.error('='.repeat(80));
+    console.error('❌❌❌ [DEBUG] STK Push Exception:');
+    console.error('📝 [DEBUG] Error message:', error.message);
+    
+    if (error.response) {
+      console.error('📡 [DEBUG] Response status:', error.response.status);
+      console.error('📄 [DEBUG] Response data:', JSON.stringify(error.response.data, null, 2));
+    } else if (error.request) {
+      console.error('🌐 [DEBUG] No response received');
+    }
+    console.error('='.repeat(80));
+    
+    return {
+      success: false,
+      message: error.response?.data?.errorMessage || 
+               error.response?.data?.ResponseDescription || 
+               error.message || 
+               'Failed to initiate payment'
+    };
+  }
+}
 
 // ============ ROUTES ============
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/matches', require('./routes/matches'));
-app.use('/api/bets', require('./routes/bets'));
-app.use('/api/payments', require('./routes/payments'));
-app.use('/api/admin', require('./routes/admin'));
-app.use('/api/live', require('./routes/live'));
-app.use('/api/notifications', require('./routes/notifications'));
-app.use('/api/kyc', require('./routes/kyc'));
-app.use('/api/odds', require('./routes/odds'));
-// Add after your other routes
-app.use('/api/ai', require('./routes/ai'));
-// Add after other routes
-app.use('/api/ai-matches', require('./routes/aiMatches'));
 
-// Start the AI Match Service
-const aiMatchService = require('./services/aiMatchService');
-aiMatchService.start();
+// Test endpoint
+router.get('/test', (req, res) => {
+  console.log('🧪 [DEBUG] Test endpoint called');
+  res.json({ 
+    success: true, 
+    message: 'Payments route working!', 
+    mpesaConfigured: !!MPESA_CONFIG.consumerKey,
+    environment: MPESA_CONFIG.environment,
+    shortcode: MPESA_CONFIG.shortcode,
+    callbackUrl: MPESA_CONFIG.callbackUrl
+  });
+});
 
-// ============ DEBUG ROUTES ============
-app.get('/debug-routes', (req, res) => {
+// Test STK Push endpoint for debugging
+router.post('/test-stk-debug', protect, async (req, res) => {
+  console.log('🧪 [DEBUG] Test STK Push Debug endpoint called');
+  console.log('📝 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+  
+  const { phoneNumber, amount } = req.body;
+  
+  if (!phoneNumber || !amount) {
+    return res.status(400).json({
+      success: false,
+      message: 'Phone number and amount are required'
+    });
+  }
+  
+  const reference = `DEBUG${Date.now()}`;
+  
   try {
-    const routes = [];
+    console.log('🚀 [DEBUG] Starting test STK Push...');
+    const result = await initiateSTKPush(phoneNumber, amount, reference);
     
-    function extractRoutes(stack, basePath = '') {
-      if (!stack || !stack.forEach) return;
-      
-      stack.forEach(layer => {
-        if (layer.route) {
-          // This is a route
-          const methods = Object.keys(layer.route.methods).join(',');
-          routes.push({
-            path: basePath + layer.route.path,
-            methods: methods.toUpperCase()
-          });
-        } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
-          // This is a router middleware (like our auth router)
-          let routerPath = basePath;
-          
-          // Try to get the base path for this router
-          if (layer.regexp) {
-            let pathStr = layer.regexp.toString();
-            // Extract the path pattern
-            const match = pathStr.match(/\/\^\\\/(.*?)(?:\\\/\?|\\\?)/);
-            if (match && match[1]) {
-              routerPath = basePath + '/' + match[1].replace(/\\\//g, '/');
-            } else {
-              routerPath = basePath;
-            }
-          }
-          
-          // Extract routes from this router
-          extractRoutes(layer.handle.stack, routerPath);
-        }
+    res.json({
+      success: result.success,
+      data: {
+        ...result,
+        reference,
+        phoneNumber,
+        amount,
+        environment: MPESA_CONFIG.environment,
+        shortcode: MPESA_CONFIG.shortcode
+      },
+      message: result.success 
+        ? '✅ STK Push initiated. Check your phone for the M-Pesa prompt.' 
+        : `❌ Failed: ${result.message}`
+    });
+  } catch (error) {
+    console.error('❌ [DEBUG] Test STK Push error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get payment methods
+router.get('/methods', protect, (req, res) => {
+  console.log('📋 [DEBUG] Get payment methods called for user:', req.user._id);
+  const userCurrency = req.user?.currency || 'KES';
+  const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
+  res.json({ success: true, data: methods });
+});
+
+// Initiate deposit
+router.post('/deposit', protect, async (req, res) => {
+  console.log('💰 [DEBUG] Deposit endpoint called');
+  console.log('👤 [DEBUG] User ID:', req.user._id);
+  console.log('📝 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber } = req.body;
+    
+    const user = await User.findById(req.user._id);
+    const depositAmount = Number(amount);
+    const currencyConfig = PAYMENT_METHODS[currency];
+    const minDeposit = currencyConfig?.minDeposit || 500;
+    
+    if (depositAmount < minDeposit) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum deposit is ${currencyConfig?.symbol || 'KSh'} ${minDeposit.toLocaleString()}`
       });
     }
     
-    extractRoutes(app._router.stack);
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number is required'
+      });
+    }
     
-    // Filter to show only payment-related routes
-    const paymentRoutes = routes.filter(r => r.path.includes('payments'));
+    // Generate reference
+    const reference = `DEP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    console.log('🔖 [DEBUG] Generated reference:', reference);
     
-    res.json({
-      success: true,
-      totalRoutes: routes.length,
-      paymentRoutes: paymentRoutes,
-      allRoutes: routes
+    // Convert amount to KES
+    let amountInKES = depositAmount;
+    if (currency !== 'KES') {
+      amountInKES = depositAmount / EXCHANGE_RATES[currency];
+    }
+    
+    // Create pending transaction
+    const transaction = await Transaction.create({
+      user: user._id,
+      type: 'DEPOSIT',
+      amount: depositAmount,
+      amountInKES: amountInKES,
+      currency: currency,
+      status: 'PENDING',
+      paymentMethod,
+      reference,
+      description: `Deposit of ${currencyConfig?.symbol || 'KSh'} ${depositAmount.toLocaleString()}`,
+      metadata: {
+        phoneNumber: phoneNumber,
+        initiatedAt: new Date().toISOString()
+      }
     });
+    console.log('✅ [DEBUG] Transaction created with ID:', transaction._id);
+    
+    // Initiate M-Pesa STK Push
+    const mpesaResponse = await initiateSTKPush(phoneNumber, depositAmount, reference);
+    console.log('📥 [DEBUG] STK Push response:', JSON.stringify(mpesaResponse, null, 2));
+    
+    if (mpesaResponse.success) {
+      pendingDeposits.set(reference, {
+        userId: user._id,
+        amount: depositAmount,
+        amountInKES: amountInKES,
+        phoneNumber: phoneNumber,
+        checkoutRequestId: mpesaResponse.checkoutRequestId,
+        transactionId: transaction._id,
+        createdAt: Date.now()
+      });
+      
+      transaction.metadata.checkoutRequestId = mpesaResponse.checkoutRequestId;
+      await transaction.save();
+      
+      res.json({
+        success: true,
+        message: 'Payment initiated. Check your phone for the M-Pesa prompt.',
+        data: {
+          reference,
+          amount: depositAmount,
+          currency: currency,
+          symbol: currencyConfig?.symbol || 'KSh',
+          checkoutRequestId: mpesaResponse.checkoutRequestId,
+          status: 'pending'
+        }
+      });
+    } else {
+      transaction.status = 'FAILED';
+      transaction.metadata.error = mpesaResponse.message;
+      await transaction.save();
+      
+      res.status(400).json({
+        success: false,
+        message: mpesaResponse.message || 'Failed to initiate payment. Please try again.'
+      });
+    }
+    
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      stack: error.stack 
+    console.error('💥 [DEBUG] Deposit endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
     });
   }
 });
 
-// Test endpoint for payments
-app.get('/api/payments-test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Payments API is accessible',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ============ HEALTH CHECK ============
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    onlineUsers: onlineUsers.size,
-    corsAllowedOrigins: allowedOrigins
-  });
-});
-
-// ============ 404 HANDLER ============
-app.use((req, res) => {
-  console.log(`❌ 404 - Route not found: ${req.method} ${req.url}`);
-  res.status(404).json({
-    success: false,
-    message: `Route not found: ${req.method} ${req.url}`
-  });
-});
-
-// ============ ERROR HANDLER ============
-app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.stack);
+// M-Pesa Callback
+router.post('/mpesa-callback', async (req, res) => {
+  console.log('='.repeat(80));
+  console.log('📱 [DEBUG] M-Pesa Callback received');
+  console.log('📦 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+  console.log('='.repeat(80));
   
-  const status = err.status || 500;
-  const message = err.message || 'Internal server error';
-  
-  // Don't leak error details in production
-  const error = process.env.NODE_ENV === 'production' ? {} : { stack: err.stack };
-  
-  res.status(status).json({
-    success: false,
-    message,
-    ...error
-  });
+  try {
+    const { Body } = req.body;
+    
+    if (Body && Body.stkCallback) {
+      const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = Body.stkCallback;
+      
+      let transaction = null;
+      let pending = null;
+      
+      for (const [ref, p] of pendingDeposits.entries()) {
+        if (p.checkoutRequestId === CheckoutRequestID) {
+          pending = p;
+          transaction = await Transaction.findById(p.transactionId);
+          break;
+        }
+      }
+      
+      if (!transaction) {
+        transaction = await Transaction.findOne({ 'metadata.checkoutRequestId': CheckoutRequestID });
+      }
+      
+      if (transaction && transaction.status === 'PENDING') {
+        if (ResultCode === 0) {
+          let amount = 0;
+          let phoneNumber = '';
+          
+          if (CallbackMetadata && CallbackMetadata.Item) {
+            CallbackMetadata.Item.forEach(item => {
+              if (item.Name === 'Amount') amount = item.Value;
+              if (item.Name === 'PhoneNumber') phoneNumber = item.Value;
+            });
+          }
+          
+          const user = await User.findById(transaction.user);
+          const oldBalance = user.balance;
+          user.balance += transaction.amountInKES;
+          await user.save();
+          
+          transaction.status = 'COMPLETED';
+          transaction.processedAt = new Date();
+          transaction.metadata = {
+            ...transaction.metadata,
+            mpesaReceipt: MerchantRequestID,
+            checkoutRequestId: CheckoutRequestID,
+            confirmedAt: new Date().toISOString(),
+            amount: amount,
+            phoneNumber: phoneNumber
+          };
+          transaction.balance = {
+            before: oldBalance,
+            after: user.balance
+          };
+          await transaction.save();
+          
+          if (pending) {
+            pendingDeposits.delete(transaction.reference);
+          }
+          
+          const io = req.app.get('io');
+          if (io) {
+            io.to(`user-${user._id}`).emit('balance-update', {
+              newBalance: user.balance,
+              amount: transaction.amount
+            });
+          }
+          
+          console.log(`✅ Deposit confirmed for ${user.username}: ${transaction.amount} ${transaction.currency}`);
+        } else {
+          transaction.status = 'FAILED';
+          transaction.metadata.resultDesc = ResultDesc;
+          await transaction.save();
+          console.log(`❌ Deposit failed: ${ResultDesc}`);
+        }
+      }
+    }
+    
+    res.json({ ResultCode: 0, ResultDesc: 'Success' });
+    
+  } catch (error) {
+    console.error('💥 [DEBUG] M-Pesa callback error:', error);
+    res.json({ ResultCode: 1, ResultDesc: 'Failed' });
+  }
 });
 
-// ============ START SERVER ============
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('='.repeat(60));
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Client URL: ${process.env.CLIENT_URL}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-  console.log('✅ CORS allowed origins:', allowedOrigins);
-  console.log('✅ Dynamic CORS: Any *.vercel.app and *.onrender.com subdomains are allowed');
-  console.log('='.repeat(60));
+// Check deposit status
+router.get('/check-deposit/:reference', protect, async (req, res) => {
+  console.log('🔍 [DEBUG] Check deposit status for reference:', req.params.reference);
+  try {
+    const { reference } = req.params;
+    const transaction = await Transaction.findOne({ reference, user: req.user._id });
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        status: transaction.status,
+        reference: transaction.reference,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        createdAt: transaction.createdAt,
+        processedAt: transaction.processedAt,
+        checkoutRequestId: transaction.metadata?.checkoutRequestId
+      }
+    });
+  } catch (error) {
+    console.error('💥 [DEBUG] Error checking deposit:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
+
+// Get balance
+router.get('/balance', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    const balances = {
+      KES: user.balance,
+      UGX: user.balance * EXCHANGE_RATES.UGX,
+      MWK: user.balance * EXCHANGE_RATES.MWK
+    };
+    
+    res.json({
+      success: true,
+      data: {
+        balance: user.balance,
+        balances,
+        symbols: { KES: 'KSh', UGX: 'USh', MWK: 'MK' }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Simple balance for header
+router.get('/balance-simple', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    res.json({
+      success: true,
+      data: { balance: user.balance, currency: 'KES', symbol: 'KSh' }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+module.exports = router;
