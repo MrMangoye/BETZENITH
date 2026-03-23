@@ -24,7 +24,9 @@ export default function Deposit() {
 
   const fetchPaymentMethods = async () => {
     try {
-      const response = await axios.get(`${BACKEND_URL}/payments/methods`);
+      const response = await axios.get(`${BACKEND_URL}/payments/methods`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
       if (response.data && response.data.success) {
         setMinDeposit(response.data.data.minDeposit || 500);
       }
@@ -71,7 +73,6 @@ export default function Deposit() {
       if (response.data && response.data.success) {
         setPendingTransaction(response.data.data);
         
-        // Show success message
         toast.success(
           `✅ Payment initiated! Check your phone for the M-Pesa prompt.`,
           { duration: 5000 }
@@ -117,7 +118,6 @@ export default function Deposit() {
           clearInterval(interval);
           toast.success('✅ Deposit confirmed! Your balance has been updated.');
           
-          // Trigger balance update
           window.dispatchEvent(new CustomEvent('balance-update', { 
             detail: { newBalance: (user?.balance || 0) + parseFloat(amount) }
           }));
@@ -141,21 +141,13 @@ export default function Deposit() {
       <div className="bg-[#1a1f2e] rounded-lg p-8">
         <h1 className="text-2xl font-bold text-white mb-6">Deposit Funds</h1>
         
-        {/* Balance Display */}
         <div className="mb-6 p-4 bg-[#2a2f3f] rounded-lg">
           <p className="text-gray-400 text-sm mb-2">Your Balance</p>
           <p className="text-2xl font-bold text-[#00cc88]">KSh {user?.balance?.toLocaleString() || 0}</p>
-          <p className="text-xs text-gray-500 mt-1">
-            ≈ UGX {((user?.balance || 0) * 28.5).toLocaleString()} | 
-            ≈ MWK {((user?.balance || 0) * 12.8).toLocaleString()}
-          </p>
         </div>
 
-        {/* Phone Number Input */}
         <div className="mb-4">
-          <label className="block text-gray-400 mb-2 text-sm">
-            M-Pesa Phone Number
-          </label>
+          <label className="block text-gray-400 mb-2 text-sm">M-Pesa Phone Number</label>
           <input
             type="tel"
             value={phoneNumber}
@@ -164,16 +156,11 @@ export default function Deposit() {
             className="w-full px-4 py-2 bg-[#2a2f3f] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2e7d32]"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">
-            You will receive a prompt on this number to enter your PIN
-          </p>
+          <p className="text-xs text-gray-500 mt-1">You will receive a prompt on this number</p>
         </div>
 
-        {/* Amount Input */}
         <div className="mb-4">
-          <label className="block text-gray-400 mb-2 text-sm">
-            Amount (KSh)
-          </label>
+          <label className="block text-gray-400 mb-2 text-sm">Amount (KSh)</label>
           <input
             type="number"
             value={amount}
@@ -185,7 +172,6 @@ export default function Deposit() {
           />
         </div>
         
-        {/* Quick Amount Select */}
         <div className="mb-6">
           <p className="text-gray-400 mb-2 text-sm">Quick Select</p>
           <div className="grid grid-cols-4 gap-2">
@@ -202,7 +188,6 @@ export default function Deposit() {
           </div>
         </div>
 
-        {/* Payment Info Card */}
         <div className="mb-6 p-4 bg-[#2e7d32]/10 rounded-lg border border-[#2e7d32]/30">
           <div className="flex items-center mb-3">
             <span className="text-2xl mr-2">📱</span>
@@ -210,9 +195,8 @@ export default function Deposit() {
           </div>
           <p className="text-3xl font-bold text-[#2e7d32] mb-3 text-center">9960318</p>
           <div className="text-xs text-gray-300">
-            <p>1️⃣ You'll receive a prompt on your phone</p>
-            <p>2️⃣ Enter your M-Pesa PIN</p>
-            <p>3️⃣ Payment will be processed instantly</p>
+            <p>You will receive a prompt on your phone</p>
+            <p>Enter your M-Pesa PIN to complete payment</p>
           </div>
           <div className="mt-2 text-xs text-yellow-500 bg-yellow-500/10 p-2 rounded">
             ⚠️ Minimum deposit: KSh {minDeposit.toLocaleString()}
@@ -237,8 +221,7 @@ export default function Deposit() {
         )}
 
         <p className="text-center text-xs text-gray-500 mt-4">
-          You will receive a prompt on your phone to enter your M-Pesa PIN.<br />
-          Payment is processed instantly.
+          You will receive a prompt on your phone to enter your M-Pesa PIN.
         </p>
       </div>
     </div>

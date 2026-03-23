@@ -29,54 +29,20 @@ const PAYMENT_METHODS = {
         name: 'M-Pesa Till Number',
         number: '9960318',
         type: 'Till Number',
-        instructions: `1. Go to M-Pesa\n2. Select "Lipa na M-Pesa"\n3. Select "Till Number"\n4. Enter Till Number: 9960318\n5. Enter Amount (Min KSh 500)\n6. Enter your M-Pesa PIN\n7. Confirm payment`,
-        action: 'Pay with M-Pesa Till'
-      }
-    ]
-  },
-  UGX: {
-    currency: 'UGX',
-    symbol: 'USh',
-    name: 'Ugandan Shilling',
-    flag: '🇺🇬',
-    minDeposit: 14250,
-    methods: [
-      {
-        id: 'mobile',
-        name: 'Airtel Money / MTN Mobile Money',
-        number: '+256 776 785216',
-        type: 'Mobile Money',
-        instructions: `1. Go to Airtel Money or MTN Mobile Money\n2. Select "Send Money"\n3. Enter Number: +256 776 785216\n4. Enter Amount (Min USh 14,250)\n5. Enter Reference: BETZENITH\n6. Enter PIN and confirm`,
-        action: 'Send Money'
-      }
-    ]
-  },
-  MWK: {
-    currency: 'MWK',
-    symbol: 'MK',
-    name: 'Malawian Kwacha',
-    flag: '🇲🇼',
-    minDeposit: 6400,
-    methods: [
-      {
-        id: 'mobile',
-        name: 'Airtel Money / TNM Mpamba',
-        number: '+256 776 785216',
-        type: 'Mobile Money',
-        instructions: `1. Go to Airtel Money or TNM Mpamba\n2. Select "Send Money"\n3. Enter Number: +256 776 785216\n4. Enter Amount (Min MK 6,400)\n5. Enter Reference: BETZENITH\n6. Enter PIN and confirm`,
-        action: 'Send Money'
+        action: 'Pay with M-Pesa'
       }
     ]
   }
 };
 
-// M-Pesa API Configuration
+// M-Pesa Configuration (from your .env)
 const MPESA_CONFIG = {
   consumerKey: process.env.MPESA_CONSUMER_KEY,
   consumerSecret: process.env.MPESA_CONSUMER_SECRET,
   passkey: process.env.MPESA_PASSKEY,
   shortcode: process.env.MPESA_SHORTCODE || '9960318',
-  callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://betzenith-9dx1.onrender.com/api/payments/mpesa-callback'
+  callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://betzenith-9dx1.onrender.com/api/payments/mpesa-callback',
+  environment: 'sandbox' // Change to 'production' when live
 };
 
 // Store pending deposits
@@ -86,32 +52,46 @@ const pendingDeposits = new Map();
 async function getMpesaAccessToken() {
   try {
     const auth = Buffer.from(`${MPESA_CONFIG.consumerKey}:${MPESA_CONFIG.consumerSecret}`).toString('base64');
-    const response = await axios.get(
-      'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
-      {
-        headers: {
-          Authorization: `Basic ${auth}`
-        },
-        timeout: 10000
-      }
-    );
+    
+    const url = MPESA_CONFIG.environment === 'production' 
+      ? 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
+      : 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
+    
+    const response = await axios.get(url, {
+      headers: { Authorization: `Basic ${auth}` },
+      timeout: 10000
+    });
+    
     return response.data.access_token;
   } catch (error) {
-    console.error('M-Pesa token error:', error.message);
+    console.error('M-Pesa token error:', error.response?.data || error.message);
     return null;
   }
 }
 
-// Initiate STK Push (User enters PIN on their phone)
-async function initiateSTKPush(phoneNumber, amount, accountReference, transactionId) {
+// Initiate STK Push (User receives prompt on phone)
+async function initiateSTKPush(phoneNumber, amount, accountReference) {
   try {
     const token = await getMpesaAccessToken();
     if (!token) {
-      throw new Error('Failed to get M-Pesa token');
+      throw new Error('Failed to get M-Pesa access token');
     }
 
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
     const password = Buffer.from(`${MPESA_CONFIG.shortcode}${MPESA_CONFIG.passkey}${timestamp}`).toString('base64');
+    
+    const url = MPESA_CONFIG.environment === 'production'
+      ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
+      : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
+    
+    // Format phone number to 254XXXXXXXXX
+    let formattedPhone = phoneNumber.replace(/\D/g, '');
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '254' + formattedPhone.substring(1);
+    }
+    if (!formattedPhone.startsWith('254')) {
+      formattedPhone = '254' + formattedPhone;
+    }
     
     const requestBody = {
       BusinessShortCode: MPESA_CONFIG.shortcode,
@@ -119,28 +99,28 @@ async function initiateSTKPush(phoneNumber, amount, accountReference, transactio
       Timestamp: timestamp,
       TransactionType: 'CustomerPayBillOnline',
       Amount: Math.round(amount),
-      PartyA: phoneNumber,
+      PartyA: formattedPhone,
       PartyB: MPESA_CONFIG.shortcode,
-      PhoneNumber: phoneNumber,
+      PhoneNumber: formattedPhone,
       CallBackURL: MPESA_CONFIG.callbackUrl,
-      AccountReference: accountReference,
+      AccountReference: accountReference.substring(0, 12),
       TransactionDesc: 'BetZenith Deposit'
     };
 
-    const response = await axios.post(
-      'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
-      requestBody,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 15000
-      }
-    );
+    console.log('STK Push Request:', { ...requestBody, Password: '***' });
+
+    const response = await axios.post(url, requestBody, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+
+    console.log('STK Push Response:', response.data);
 
     return {
-      success: true,
+      success: response.data.ResponseCode === '0',
       checkoutRequestId: response.data.CheckoutRequestID,
       merchantRequestId: response.data.MerchantRequestID,
       responseCode: response.data.ResponseCode,
@@ -159,17 +139,17 @@ async function initiateSTKPush(phoneNumber, amount, accountReference, transactio
 
 // Test endpoint
 router.get('/test', (req, res) => {
-  res.json({ success: true, message: 'Payments route working!' });
+  res.json({ success: true, message: 'Payments route working!', mpesaConfigured: !!MPESA_CONFIG.consumerKey });
 });
 
 // Get payment methods
-router.get('/methods', (req, res) => {
+router.get('/methods', protect, (req, res) => {
   const userCurrency = req.user?.currency || 'KES';
   const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
   res.json({ success: true, data: methods });
 });
 
-// Initiate deposit with M-Pesa STK Push
+// Initiate deposit with real M-Pesa STK Push
 router.post('/deposit', protect, async (req, res) => {
   try {
     const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber } = req.body;
@@ -193,19 +173,10 @@ router.post('/deposit', protect, async (req, res) => {
       });
     }
     
-    // Format phone number for M-Pesa (254XXXXXXXXX)
-    let formattedPhone = phoneNumber.replace(/\D/g, '');
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '254' + formattedPhone.substring(1);
-    }
-    if (!formattedPhone.startsWith('254')) {
-      formattedPhone = '254' + formattedPhone;
-    }
-    
     // Generate reference
     const reference = `DEP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     
-    // Convert amount to KES for balance
+    // Convert amount to KES
     let amountInKES = depositAmount;
     if (currency !== 'KES') {
       amountInKES = depositAmount / EXCHANGE_RATES[currency];
@@ -223,26 +194,21 @@ router.post('/deposit', protect, async (req, res) => {
       reference,
       description: `Deposit of ${currencyConfig?.symbol || 'KSh'} ${depositAmount.toLocaleString()}`,
       metadata: {
-        phoneNumber: formattedPhone,
+        phoneNumber: phoneNumber,
         initiatedAt: new Date().toISOString()
       }
     });
     
     // Initiate M-Pesa STK Push
-    const mpesaResponse = await initiateSTKPush(
-      formattedPhone,
-      depositAmount,
-      reference,
-      transaction._id.toString()
-    );
+    const mpesaResponse = await initiateSTKPush(phoneNumber, depositAmount, reference);
     
-    if (mpesaResponse.success && mpesaResponse.responseCode === '0') {
-      // Store pending deposit with checkout request ID
+    if (mpesaResponse.success) {
+      // Store pending deposit with checkout ID
       pendingDeposits.set(reference, {
         userId: user._id,
         amount: depositAmount,
         amountInKES: amountInKES,
-        phoneNumber: formattedPhone,
+        phoneNumber: phoneNumber,
         checkoutRequestId: mpesaResponse.checkoutRequestId,
         transactionId: transaction._id,
         createdAt: Date.now()
@@ -254,7 +220,7 @@ router.post('/deposit', protect, async (req, res) => {
       
       res.json({
         success: true,
-        message: 'Payment initiated. Please enter your M-Pesa PIN on your phone.',
+        message: 'Payment initiated. Check your phone for the M-Pesa prompt.',
         data: {
           reference,
           amount: depositAmount,
@@ -262,11 +228,11 @@ router.post('/deposit', protect, async (req, res) => {
           symbol: currencyConfig?.symbol || 'KSh',
           checkoutRequestId: mpesaResponse.checkoutRequestId,
           status: 'pending',
-          instructions: 'Check your phone for the M-Pesa prompt. Enter your PIN to complete payment.'
+          instructions: 'Enter your M-Pesa PIN on your phone to complete payment.'
         }
       });
     } else {
-      // Failed to initiate STK Push
+      // Failed to initiate
       transaction.status = 'FAILED';
       transaction.metadata.error = mpesaResponse.message;
       await transaction.save();
@@ -287,7 +253,7 @@ router.post('/deposit', protect, async (req, res) => {
   }
 });
 
-// M-Pesa Callback (receives payment confirmation)
+// M-Pesa Callback (Receives payment confirmation from Safaricom)
 router.post('/mpesa-callback', async (req, res) => {
   console.log('📱 M-Pesa Callback received:', JSON.stringify(req.body, null, 2));
   
@@ -299,9 +265,12 @@ router.post('/mpesa-callback', async (req, res) => {
       
       // Find transaction by checkout request ID
       let transaction = null;
-      for (const [ref, pending] of pendingDeposits.entries()) {
-        if (pending.checkoutRequestId === CheckoutRequestID) {
-          transaction = await Transaction.findById(pending.transactionId);
+      let pending = null;
+      
+      for (const [ref, p] of pendingDeposits.entries()) {
+        if (p.checkoutRequestId === CheckoutRequestID) {
+          pending = p;
+          transaction = await Transaction.findById(p.transactionId);
           break;
         }
       }
@@ -336,7 +305,9 @@ router.post('/mpesa-callback', async (req, res) => {
             checkoutRequestId: CheckoutRequestID,
             confirmedAt: new Date().toISOString(),
             resultCode: ResultCode,
-            resultDesc: ResultDesc
+            resultDesc: ResultDesc,
+            amount: amount,
+            phoneNumber: phoneNumber
           };
           transaction.balance = {
             before: oldBalance,
@@ -345,14 +316,11 @@ router.post('/mpesa-callback', async (req, res) => {
           await transaction.save();
           
           // Remove from pending
-          for (const [ref, pending] of pendingDeposits.entries()) {
-            if (pending.checkoutRequestId === CheckoutRequestID) {
-              pendingDeposits.delete(ref);
-              break;
-            }
+          if (pending) {
+            pendingDeposits.delete(transaction.reference);
           }
           
-          // Emit socket event
+          // Emit socket event for real-time update
           const io = req.app.get('io');
           if (io) {
             io.to(`user-${user._id}`).emit('balance-update', {
@@ -360,9 +328,15 @@ router.post('/mpesa-callback', async (req, res) => {
               amount: transaction.amount,
               transaction: transaction.summary
             });
+            
+            io.to(`user-${user._id}`).emit('notification', {
+              type: 'success',
+              title: 'Deposit Successful!',
+              message: `KSh ${transaction.amount.toLocaleString()} has been added to your account.`
+            });
           }
           
-          console.log(`✅ Deposit confirmed for user ${user.username}: KSh ${transaction.amount}`);
+          console.log(`✅ Deposit confirmed for ${user.username}: KSh ${transaction.amount}`);
         } else {
           // Payment failed
           transaction.status = 'FAILED';
@@ -379,6 +353,7 @@ router.post('/mpesa-callback', async (req, res) => {
       }
     }
     
+    // Always return success to M-Pesa
     res.json({ ResultCode: 0, ResultDesc: 'Success' });
     
   } catch (error) {
@@ -394,7 +369,10 @@ router.get('/check-deposit/:reference', protect, async (req, res) => {
     const transaction = await Transaction.findOne({ reference, user: req.user._id });
     
     if (!transaction) {
-      return res.status(404).json({ success: false, message: 'Transaction not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
     }
     
     res.json({
@@ -405,7 +383,8 @@ router.get('/check-deposit/:reference', protect, async (req, res) => {
         amount: transaction.amount,
         currency: transaction.currency,
         createdAt: transaction.createdAt,
-        processedAt: transaction.processedAt
+        processedAt: transaction.processedAt,
+        checkoutRequestId: transaction.metadata?.checkoutRequestId
       }
     });
   } catch (error) {
