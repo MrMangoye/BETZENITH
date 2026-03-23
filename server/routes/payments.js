@@ -241,7 +241,14 @@ router.post('/deposit', protect, async (req, res) => {
       transaction.status = 'FAILED';
       transaction.metadata.error = mpesaResponse.message;
       await transaction.save();
-      
+    
+      // Debug tip: log the full error response for troubleshooting
+      console.error('Deposit failed:', {
+        message: mpesaResponse.message,
+        responseCode: mpesaResponse.responseCode,
+        responseDescription: mpesaResponse.responseDescription
+      });
+    
       res.status(400).json({
         success: false,
         message: mpesaResponse.message || 'Failed to initiate payment. Please try again.'
