@@ -157,7 +157,7 @@ async function initiateSTKPush(phoneNumber, amount, accountReference) {
     
     const url = MPESA_CONFIG.environment === 'production'
       ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
-      : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
+      : 'https://sandbox.safaricom.co.ke/oauth/mpesa/stkpush/v1/processrequest';
     
     console.log('🌐 [DEBUG] STK Push URL:', url);
     
