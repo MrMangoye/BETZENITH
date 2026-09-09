@@ -1,4 +1,5 @@
 // src/context/CurrencyContext.jsx
+
 import { createContext, useContext, useState, useEffect } from 'react';
 
 const CurrencyContext = createContext();
@@ -13,11 +14,11 @@ export const CurrencyProvider = ({ children }) => {
   const [currency, setCurrency] = useState(() => {
     return localStorage.getItem('selectedCurrency') || 'KES';
   });
-  
+
   const [exchangeRates, setExchangeRates] = useState({
     KES: 1,
-    UGX: 28.5, // 1 KES = 28.5 UGX (example rate)
-    MWK: 12.8  // 1 KES = 12.8 MWK (example rate)
+    UGX: 28.5,
+    MWK: 12.8
   });
 
   const currencies = {
@@ -25,7 +26,7 @@ export const CurrencyProvider = ({ children }) => {
       symbol: 'KSh',
       name: 'Kenyan Shilling',
       paymentMethod: 'till',
-      tillNumber: '5243333',
+      tillNumber: '9960318',
       minStake: 500,
       flag: '🇰🇪'
     },
@@ -34,7 +35,7 @@ export const CurrencyProvider = ({ children }) => {
       name: 'Ugandan Shilling',
       paymentMethod: 'mobile',
       phonePrefix: '+256',
-      minStake: 14000, // 500 KES equivalent
+      minStake: 14000,
       flag: '🇺🇬'
     },
     MWK: {
@@ -42,7 +43,7 @@ export const CurrencyProvider = ({ children }) => {
       name: 'Malawian Kwacha',
       paymentMethod: 'mobile',
       phonePrefix: '+265',
-      minStake: 6400, // 500 KES equivalent
+      minStake: 6400,
       flag: '🇲🇼'
     }
   };
@@ -59,7 +60,7 @@ export const CurrencyProvider = ({ children }) => {
     const converted = convertAmount(amount);
     const value = converted[targetCurrency];
     const currencyInfo = currencies[targetCurrency];
-    
+
     if (targetCurrency === 'KES') {
       return `${currencyInfo.symbol} ${value.toLocaleString()}`;
     }
