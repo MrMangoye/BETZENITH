@@ -1,4 +1,5 @@
 // server/routes/payments.js
+
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const User = require('../models/User');
@@ -14,152 +15,153 @@ const EXCHANGE_RATES = {
   MWK: 12.8
 };
 
-// Payment methods
+// Payment methods with your actual numbers
 const PAYMENT_METHODS = {
   KES: {
     currency: 'KES',
     symbol: 'KSh',
     name: 'Kenyan Shilling',
     flag: '🇰🇪',
-    minDeposit: 500,
-    tillNumber: '9960318',
+    minDeposit: parseInt(process.env.MINIMUM_DEPOSIT) || 500,
+    tillNumber: process.env.MPESA_TILL_NUMBER || '9960318',
     methods: [
       {
         id: 'till',
         name: 'M-Pesa Till Number',
-        number: '9960318',
+        number: process.env.MPESA_TILL_NUMBER || '9960318',
         type: 'Till Number',
         action: 'Pay with M-Pesa'
+      }
+    ]
+  },
+  UGX: {
+    currency: 'UGX',
+    symbol: 'USh',
+    name: 'Ugandan Shilling',
+    flag: '🇺🇬',
+    minDeposit: 14000, // ~500 KES
+    mobileNumber: process.env.UGANDA_MOBILE_NUMBER || '+256776785216',
+    methods: [
+      {
+        id: 'mobile',
+        name: 'MTN Mobile Money',
+        provider: 'mtn',
+        number: process.env.UGANDA_MOBILE_NUMBER || '+256776785216',
+        action: 'Pay with MTN Mobile Money'
+      },
+      {
+        id: 'mobile',
+        name: 'Airtel Money',
+        provider: 'airtel',
+        number: process.env.UGANDA_MOBILE_NUMBER || '+256776785216',
+        action: 'Pay with Airtel Money'
+      }
+    ]
+  },
+  MWK: {
+    currency: 'MWK',
+    symbol: 'MK',
+    name: 'Malawian Kwacha',
+    flag: '🇲🇼',
+    minDeposit: 6400, // ~500 KES
+    mobileNumber: process.env.MALAWI_MOBILE_NUMBER || '+256776785216',
+    methods: [
+      {
+        id: 'mobile',
+        name: 'Airtel Money Malawi',
+        provider: 'airtel',
+        number: process.env.MALAWI_MOBILE_NUMBER || '+256776785216',
+        action: 'Pay with Airtel Money'
       }
     ]
   }
 };
 
-// M-Pesa Configuration (from your .env)
+// M-Pesa Configuration (from .env)
 const MPESA_CONFIG = {
   consumerKey: process.env.MPESA_CONSUMER_KEY,
   consumerSecret: process.env.MPESA_CONSUMER_SECRET,
   passkey: process.env.MPESA_PASSKEY,
-  shortcode: process.env.MPESA_SHORTCODE || '9960318',
+  shortcode: process.env.MPESA_SHORTCODE || process.env.MPESA_TILL_NUMBER || '9960318',
   callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://betzenith-9dx1.onrender.com/api/payments/mpesa-callback',
-  environment: process.env.MPESA_ENVIRONMENT || 'sandbox' // Default to sandbox for testing
+  environment: process.env.MPESA_ENVIRONMENT || 'sandbox'
 };
 
 // Log M-Pesa config on startup
-console.log('🚀 [DEBUG] M-Pesa Configuration loaded:');
-console.log('📝 [DEBUG] Environment:', MPESA_CONFIG.environment);
-console.log('🔑 [DEBUG] Consumer Key present:', !!MPESA_CONFIG.consumerKey);
-console.log('🔑 [DEBUG] Consumer Secret present:', !!MPESA_CONFIG.consumerSecret);
-console.log('🔑 [DEBUG] Passkey present:', !!MPESA_CONFIG.passkey);
-console.log('📞 [DEBUG] Shortcode:', MPESA_CONFIG.shortcode);
-console.log('🔗 [DEBUG] Callback URL:', MPESA_CONFIG.callbackUrl);
+console.log('🚀 M-Pesa Configuration loaded:');
+console.log('📝 Environment:', MPESA_CONFIG.environment);
+console.log('🔑 Consumer Key present:', !!MPESA_CONFIG.consumerKey);
+console.log('🔑 Consumer Secret present:', !!MPESA_CONFIG.consumerSecret);
+console.log('🔑 Passkey present:', !!MPESA_CONFIG.passkey);
+console.log('📞 Shortcode:', MPESA_CONFIG.shortcode);
+console.log('🔗 Callback URL:', MPESA_CONFIG.callbackUrl);
 
 // Store pending deposits
 const pendingDeposits = new Map();
 
 // Get M-Pesa Access Token
 async function getMpesaAccessToken() {
-  console.log('🔄 [DEBUG] Starting getMpesaAccessToken...');
-  console.log('📝 [DEBUG] Environment:', MPESA_CONFIG.environment);
+  console.log('🔄 Getting M-Pesa access token...');
   
   try {
     const auth = Buffer.from(`${MPESA_CONFIG.consumerKey}:${MPESA_CONFIG.consumerSecret}`).toString('base64');
-    console.log('✅ [DEBUG] Auth header generated (length):', auth.length);
     
     const url = MPESA_CONFIG.environment === 'production'
       ? 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
       : 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
-    
-    console.log('🌐 [DEBUG] Token URL:', url);
     
     const response = await axios.get(url, {
       headers: { Authorization: `Basic ${auth}` },
       timeout: 10000
     });
     
-    console.log('✅ [DEBUG] Token received successfully');
-    console.log('🔑 [DEBUG] Access token (first 20 chars):', response.data.access_token.substring(0, 20) + '...');
-    
+    console.log('✅ M-Pesa access token obtained');
     return response.data.access_token;
   } catch (error) {
-    console.error('❌ [DEBUG] Error in getMpesaAccessToken:');
+    console.error('❌ M-Pesa token error:', error.message);
     if (error.response) {
-      console.error('📡 [DEBUG] Response status:', error.response.status);
-      console.error('📄 [DEBUG] Response data:', JSON.stringify(error.response.data, null, 2));
-    } else if (error.request) {
-      console.error('🌐 [DEBUG] No response received');
-    } else {
-      console.error('💥 [DEBUG] Error message:', error.message);
+      console.error('Response:', error.response.data);
     }
     return null;
   }
 }
 
-// Initiate STK Push with enhanced logging
+// Initiate STK Push
 async function initiateSTKPush(phoneNumber, amount, accountReference) {
-  console.log('='.repeat(80));
-  console.log('🚀 [DEBUG] Starting initiateSTKPush...');
-  console.log('📞 [DEBUG] Original phone number:', phoneNumber);
-  console.log('💰 [DEBUG] Amount:', amount);
-  console.log('🔖 [DEBUG] Account Reference:', accountReference);
-  console.log('🔧 [DEBUG] Environment:', MPESA_CONFIG.environment);
-  console.log('🔧 [DEBUG] Shortcode:', MPESA_CONFIG.shortcode);
-  console.log('='.repeat(80));
+  console.log('🚀 Initiating STK Push...');
+  console.log('📞 Phone:', phoneNumber);
+  console.log('💰 Amount:', amount);
+  console.log('🔖 Reference:', accountReference);
   
   try {
-    // Get access token
-    console.log('🔑 [DEBUG] Getting access token...');
     const token = await getMpesaAccessToken();
     if (!token) {
-      console.error('❌ [DEBUG] Failed to get access token');
-      return {
-        success: false,
-        message: 'Failed to authenticate with M-Pesa. Please check your credentials.'
-      };
+      return { success: false, message: 'Failed to authenticate with M-Pesa. Please check your credentials.' };
     }
-    console.log('✅ [DEBUG] Access token obtained successfully');
     
-    // Format phone number
-    console.log('📞 [DEBUG] Formatting phone number...');
+    // Format phone number (Kenyan format)
     let formattedPhone = phoneNumber.replace(/\D/g, '');
-    console.log('📞 [DEBUG] After removing non-digits:', formattedPhone);
-    
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '254' + formattedPhone.substring(1);
-      console.log('📞 [DEBUG] After converting from 0:', formattedPhone);
     } else if (formattedPhone.length === 9 && !formattedPhone.startsWith('254')) {
       formattedPhone = '254' + formattedPhone;
-      console.log('📞 [DEBUG] After adding 254 prefix:', formattedPhone);
-    } else if (formattedPhone.length === 12 && formattedPhone.startsWith('254')) {
-      console.log('📞 [DEBUG] Already in correct format:', formattedPhone);
-    } else {
-      console.error('❌ [DEBUG] Invalid phone number format:', formattedPhone);
-      return {
-        success: false,
-        message: 'Invalid phone number format. Please use a valid Kenyan number (e.g., 0712345678)'
-      };
+    } else if (formattedPhone.startsWith('+')) {
+      formattedPhone = formattedPhone.substring(1);
     }
+    
+    console.log('📞 Formatted phone:', formattedPhone);
     
     // Generate timestamp
     const now = new Date();
     const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-    console.log('⏰ [DEBUG] Timestamp:', timestamp);
     
-    // Use correct shortcode for environment
     const businessShortCode = MPESA_CONFIG.environment === 'sandbox' ? '174379' : MPESA_CONFIG.shortcode;
-    console.log('🏢 [DEBUG] Business Shortcode:', businessShortCode);
-    
-    // Generate password
     const passwordString = `${businessShortCode}${MPESA_CONFIG.passkey}${timestamp}`;
-    console.log('🔐 [DEBUG] Password string length:', passwordString.length);
     const password = Buffer.from(passwordString).toString('base64');
-    console.log('✅ [DEBUG] Password generated (base64 length):', password.length);
     
     const url = MPESA_CONFIG.environment === 'production'
       ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
-      : 'https://sandbox.safaricom.co.ke/oauth/mpesa/stkpush/v1/processrequest';
-    
-    console.log('🌐 [DEBUG] STK Push URL:', url);
+      : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
     
     const requestBody = {
       BusinessShortCode: businessShortCode,
@@ -174,20 +176,8 @@ async function initiateSTKPush(phoneNumber, amount, accountReference) {
       AccountReference: accountReference.substring(0, 12),
       TransactionDesc: 'BetZenith Deposit'
     };
-
-    console.log('📤 [DEBUG] STK Push Request:');
-    console.log('   BusinessShortCode:', requestBody.BusinessShortCode);
-    console.log('   TransactionType:', requestBody.TransactionType);
-    console.log('   Amount:', requestBody.Amount);
-    console.log('   PartyA:', requestBody.PartyA);
-    console.log('   PartyB:', requestBody.PartyB);
-    console.log('   PhoneNumber:', requestBody.PhoneNumber);
-    console.log('   AccountReference:', requestBody.AccountReference);
-    console.log('   CallBackURL:', requestBody.CallBackURL);
-    console.log('   Timestamp:', requestBody.Timestamp);
-    console.log('   Password:', '***');
-
-    console.log('⏱️ [DEBUG] Sending request to Safaricom...');
+    
+    console.log('📤 Sending STK Push request...');
     const response = await axios.post(url, requestBody, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -195,111 +185,40 @@ async function initiateSTKPush(phoneNumber, amount, accountReference) {
       },
       timeout: 30000
     });
-
-    console.log('📥 [DEBUG] STK Push Response:', JSON.stringify(response.data, null, 2));
-    console.log('✅ [DEBUG] Response Code:', response.data.ResponseCode);
-    console.log('📝 [DEBUG] Response Description:', response.data.ResponseDescription);
+    
+    console.log('📥 STK Push response:', response.data);
     
     if (response.data.ResponseCode === '0') {
-      console.log('✅✅✅ [DEBUG] STK Push initiated successfully!');
-      console.log('📱 [DEBUG] M-Pesa prompt should appear on phone:', formattedPhone);
-      console.log('🆔 [DEBUG] CheckoutRequestID:', response.data.CheckoutRequestID);
+      console.log('✅ STK Push initiated successfully');
+      return {
+        success: true,
+        checkoutRequestId: response.data.CheckoutRequestID,
+        merchantRequestId: response.data.MerchantRequestID,
+        responseDescription: response.data.ResponseDescription
+      };
     } else {
-      console.log('❌ [DEBUG] STK Push failed with ResponseCode:', response.data.ResponseCode);
-      console.log('❌ [DEBUG] Reason:', response.data.ResponseDescription);
+      console.log('❌ STK Push failed:', response.data.ResponseDescription);
+      return {
+        success: false,
+        message: response.data.ResponseDescription || 'Payment initiation failed'
+      };
     }
-
-    return {
-      success: response.data.ResponseCode === '0',
-      checkoutRequestId: response.data.CheckoutRequestID,
-      merchantRequestId: response.data.MerchantRequestID,
-      responseCode: response.data.ResponseCode,
-      responseDescription: response.data.ResponseDescription
-    };
   } catch (error) {
-    console.error('='.repeat(80));
-    console.error('❌❌❌ [DEBUG] STK Push Exception:');
-    console.error('📝 [DEBUG] Error message:', error.message);
-    
+    console.error('❌ STK Push exception:', error.message);
     if (error.response) {
-      console.error('📡 [DEBUG] Response status:', error.response.status);
-      console.error('📄 [DEBUG] Response data:', JSON.stringify(error.response.data, null, 2));
-    } else if (error.request) {
-      console.error('🌐 [DEBUG] No response received');
+      console.error('Response data:', error.response.data);
     }
-    console.error('='.repeat(80));
-    
     return {
       success: false,
-      message: error.response?.data?.errorMessage || 
-               error.response?.data?.ResponseDescription || 
-               error.message || 
-               'Failed to initiate payment'
+      message: error.response?.data?.errorMessage || error.message || 'Failed to initiate payment'
     };
   }
 }
 
 // ============ ROUTES ============
 
-// Test endpoint
-router.get('/test', (req, res) => {
-  console.log('🧪 [DEBUG] Test endpoint called');
-  res.json({ 
-    success: true, 
-    message: 'Payments route working!', 
-    mpesaConfigured: !!MPESA_CONFIG.consumerKey,
-    environment: MPESA_CONFIG.environment,
-    shortcode: MPESA_CONFIG.shortcode,
-    callbackUrl: MPESA_CONFIG.callbackUrl
-  });
-});
-
-// Test STK Push endpoint for debugging
-router.post('/test-stk-debug', protect, async (req, res) => {
-  console.log('🧪 [DEBUG] Test STK Push Debug endpoint called');
-  console.log('📝 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
-  
-  const { phoneNumber, amount } = req.body;
-  
-  if (!phoneNumber || !amount) {
-    return res.status(400).json({
-      success: false,
-      message: 'Phone number and amount are required'
-    });
-  }
-  
-  const reference = `DEBUG${Date.now()}`;
-  
-  try {
-    console.log('🚀 [DEBUG] Starting test STK Push...');
-    const result = await initiateSTKPush(phoneNumber, amount, reference);
-    
-    res.json({
-      success: result.success,
-      data: {
-        ...result,
-        reference,
-        phoneNumber,
-        amount,
-        environment: MPESA_CONFIG.environment,
-        shortcode: MPESA_CONFIG.shortcode
-      },
-      message: result.success 
-        ? '✅ STK Push initiated. Check your phone for the M-Pesa prompt.' 
-        : `❌ Failed: ${result.message}`
-    });
-  } catch (error) {
-    console.error('❌ [DEBUG] Test STK Push error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
 // Get payment methods
 router.get('/methods', protect, (req, res) => {
-  console.log('📋 [DEBUG] Get payment methods called for user:', req.user._id);
   const userCurrency = req.user?.currency || 'KES';
   const methods = PAYMENT_METHODS[userCurrency] || PAYMENT_METHODS.KES;
   res.json({ success: true, data: methods });
@@ -307,22 +226,30 @@ router.get('/methods', protect, (req, res) => {
 
 // Initiate deposit
 router.post('/deposit', protect, async (req, res) => {
-  console.log('💰 [DEBUG] Deposit endpoint called');
-  console.log('👤 [DEBUG] User ID:', req.user._id);
-  console.log('📝 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+  console.log('💰 Deposit endpoint called');
+  console.log('User:', req.user?._id);
+  console.log('Body:', req.body);
   
   try {
-    const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber } = req.body;
+    const { amount, paymentMethod = 'till', currency = 'KES', phoneNumber, provider } = req.body;
     
     const user = await User.findById(req.user._id);
     const depositAmount = Number(amount);
     const currencyConfig = PAYMENT_METHODS[currency];
-    const minDeposit = currencyConfig?.minDeposit || 500;
+    
+    if (!currencyConfig) {
+      return res.status(400).json({
+        success: false,
+        message: `Unsupported currency: ${currency}`
+      });
+    }
+    
+    const minDeposit = currencyConfig.minDeposit;
     
     if (depositAmount < minDeposit) {
       return res.status(400).json({
         success: false,
-        message: `Minimum deposit is ${currencyConfig?.symbol || 'KSh'} ${minDeposit.toLocaleString()}`
+        message: `Minimum deposit is ${currencyConfig.symbol} ${minDeposit.toLocaleString()}`
       });
     }
     
@@ -335,9 +262,9 @@ router.post('/deposit', protect, async (req, res) => {
     
     // Generate reference
     const reference = `DEP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    console.log('🔖 [DEBUG] Generated reference:', reference);
+    console.log('🔖 Generated reference:', reference);
     
-    // Convert amount to KES
+    // Convert amount to KES for internal storage
     let amountInKES = depositAmount;
     if (currency !== 'KES') {
       amountInKES = depositAmount / EXCHANGE_RATES[currency];
@@ -353,57 +280,133 @@ router.post('/deposit', protect, async (req, res) => {
       status: 'PENDING',
       paymentMethod,
       reference,
-      description: `Deposit of ${currencyConfig?.symbol || 'KSh'} ${depositAmount.toLocaleString()}`,
+      description: `Deposit of ${currencyConfig.symbol} ${depositAmount.toLocaleString()}`,
       metadata: {
         phoneNumber: phoneNumber,
+        provider: provider,
         initiatedAt: new Date().toISOString()
       }
     });
-    console.log('✅ [DEBUG] Transaction created with ID:', transaction._id);
     
-    // Initiate M-Pesa STK Push
-    const mpesaResponse = await initiateSTKPush(phoneNumber, depositAmount, reference);
-    console.log('📥 [DEBUG] STK Push response:', JSON.stringify(mpesaResponse, null, 2));
+    let paymentResponse;
     
-    if (mpesaResponse.success) {
-      pendingDeposits.set(reference, {
-        userId: user._id,
-        amount: depositAmount,
-        amountInKES: amountInKES,
-        phoneNumber: phoneNumber,
-        checkoutRequestId: mpesaResponse.checkoutRequestId,
-        transactionId: transaction._id,
-        createdAt: Date.now()
-      });
+    // Handle Kenyan M-Pesa (STK Push)
+    if (currency === 'KES' && paymentMethod === 'till') {
+      paymentResponse = await initiateSTKPush(phoneNumber, depositAmount, reference);
       
-      transaction.metadata.checkoutRequestId = mpesaResponse.checkoutRequestId;
+      if (paymentResponse.success) {
+        pendingDeposits.set(reference, {
+          userId: user._id,
+          amount: depositAmount,
+          amountInKES: amountInKES,
+          phoneNumber: phoneNumber,
+          checkoutRequestId: paymentResponse.checkoutRequestId,
+          transactionId: transaction._id,
+          createdAt: Date.now()
+        });
+        
+        transaction.metadata.checkoutRequestId = paymentResponse.checkoutRequestId;
+        await transaction.save();
+        
+        res.json({
+          success: true,
+          message: 'Payment initiated. Check your phone for the M-Pesa prompt.',
+          data: {
+            reference,
+            amount: depositAmount,
+            currency: currency,
+            symbol: currencyConfig.symbol,
+            checkoutRequestId: paymentResponse.checkoutRequestId,
+            status: 'pending'
+          }
+        });
+      } else {
+        transaction.status = 'FAILED';
+        transaction.metadata.error = paymentResponse.message;
+        await transaction.save();
+        
+        res.status(400).json({
+          success: false,
+          message: paymentResponse.message || 'Failed to initiate payment. Please try again.'
+        });
+      }
+    } 
+    // Handle Uganda Mobile Money (manual for now)
+    else if (currency === 'UGX') {
+      const mobileNumber = currencyConfig.mobileNumber;
+      const selectedMethod = currencyConfig.methods.find(m => m.provider === provider) || currencyConfig.methods[0];
+      
+      transaction.status = 'PROCESSING';
+      transaction.metadata.manualProcessing = true;
+      transaction.metadata.paymentNumber = mobileNumber;
+      transaction.metadata.providerName = selectedMethod.name;
       await transaction.save();
       
       res.json({
         success: true,
-        message: 'Payment initiated. Check your phone for the M-Pesa prompt.',
+        message: `Payment initiated. Please send ${currencyConfig.symbol} ${depositAmount.toLocaleString()} to our mobile money number.`,
         data: {
           reference,
           amount: depositAmount,
           currency: currency,
-          symbol: currencyConfig?.symbol || 'KSh',
-          checkoutRequestId: mpesaResponse.checkoutRequestId,
-          status: 'pending'
+          symbol: currencyConfig.symbol,
+          status: 'processing',
+          paymentInstructions: {
+            provider: selectedMethod.name,
+            number: mobileNumber,
+            reference: reference,
+            amount: `${currencyConfig.symbol} ${depositAmount.toLocaleString()}`
+          }
         }
       });
-    } else {
-      transaction.status = 'FAILED';
-      transaction.metadata.error = mpesaResponse.message;
+    } 
+    // Handle Malawi Mobile Money (manual for now)
+    else if (currency === 'MWK') {
+      const mobileNumber = currencyConfig.mobileNumber;
+      const selectedMethod = currencyConfig.methods[0];
+      
+      transaction.status = 'PROCESSING';
+      transaction.metadata.manualProcessing = true;
+      transaction.metadata.paymentNumber = mobileNumber;
       await transaction.save();
       
-      res.status(400).json({
-        success: false,
-        message: mpesaResponse.message || 'Failed to initiate payment. Please try again.'
+      res.json({
+        success: true,
+        message: `Payment initiated. Please send ${currencyConfig.symbol} ${depositAmount.toLocaleString()} to our Airtel Money number.`,
+        data: {
+          reference,
+          amount: depositAmount,
+          currency: currency,
+          symbol: currencyConfig.symbol,
+          status: 'processing',
+          paymentInstructions: {
+            provider: selectedMethod.name,
+            number: mobileNumber,
+            reference: reference,
+            amount: `${currencyConfig.symbol} ${depositAmount.toLocaleString()}`
+          }
+        }
+      });
+    }
+    else {
+      transaction.status = 'PROCESSING';
+      await transaction.save();
+      
+      res.json({
+        success: true,
+        message: `Payment initiated. Please complete payment of ${currencyConfig.symbol} ${depositAmount.toLocaleString()}.`,
+        data: {
+          reference,
+          amount: depositAmount,
+          currency: currency,
+          symbol: currencyConfig.symbol,
+          status: 'processing'
+        }
       });
     }
     
   } catch (error) {
-    console.error('💥 [DEBUG] Deposit endpoint error:', error);
+    console.error('💥 Deposit error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -414,10 +417,8 @@ router.post('/deposit', protect, async (req, res) => {
 
 // M-Pesa Callback
 router.post('/mpesa-callback', async (req, res) => {
-  console.log('='.repeat(80));
-  console.log('📱 [DEBUG] M-Pesa Callback received');
-  console.log('📦 [DEBUG] Request body:', JSON.stringify(req.body, null, 2));
-  console.log('='.repeat(80));
+  console.log('📱 M-Pesa Callback received');
+  console.log('Body:', JSON.stringify(req.body, null, 2));
   
   try {
     const { Body } = req.body;
@@ -425,9 +426,12 @@ router.post('/mpesa-callback', async (req, res) => {
     if (Body && Body.stkCallback) {
       const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = Body.stkCallback;
       
+      console.log(`Callback: ResultCode=${ResultCode}, ResultDesc=${ResultDesc}`);
+      
       let transaction = null;
       let pending = null;
       
+      // Find pending deposit
       for (const [ref, p] of pendingDeposits.entries()) {
         if (p.checkoutRequestId === CheckoutRequestID) {
           pending = p;
@@ -444,11 +448,13 @@ router.post('/mpesa-callback', async (req, res) => {
         if (ResultCode === 0) {
           let amount = 0;
           let phoneNumber = '';
+          let mpesaReceipt = '';
           
           if (CallbackMetadata && CallbackMetadata.Item) {
             CallbackMetadata.Item.forEach(item => {
               if (item.Name === 'Amount') amount = item.Value;
               if (item.Name === 'PhoneNumber') phoneNumber = item.Value;
+              if (item.Name === 'MpesaReceiptNumber') mpesaReceipt = item.Value;
             });
           }
           
@@ -461,7 +467,8 @@ router.post('/mpesa-callback', async (req, res) => {
           transaction.processedAt = new Date();
           transaction.metadata = {
             ...transaction.metadata,
-            mpesaReceipt: MerchantRequestID,
+            mpesaReceipt: mpesaReceipt,
+            merchantRequestId: MerchantRequestID,
             checkoutRequestId: CheckoutRequestID,
             confirmedAt: new Date().toISOString(),
             amount: amount,
@@ -477,11 +484,13 @@ router.post('/mpesa-callback', async (req, res) => {
             pendingDeposits.delete(transaction.reference);
           }
           
+          // Emit real-time balance update
           const io = req.app.get('io');
           if (io) {
             io.to(`user-${user._id}`).emit('balance-update', {
               newBalance: user.balance,
-              amount: transaction.amount
+              amount: transaction.amount,
+              currency: transaction.currency
             });
           }
           
@@ -492,20 +501,97 @@ router.post('/mpesa-callback', async (req, res) => {
           await transaction.save();
           console.log(`❌ Deposit failed: ${ResultDesc}`);
         }
+      } else if (transaction) {
+        console.log(`Transaction already ${transaction.status}, ignoring callback`);
       }
     }
     
+    // Always respond with success to M-Pesa
     res.json({ ResultCode: 0, ResultDesc: 'Success' });
     
   } catch (error) {
-    console.error('💥 [DEBUG] M-Pesa callback error:', error);
+    console.error('💥 M-Pesa callback error:', error);
     res.json({ ResultCode: 1, ResultDesc: 'Failed' });
+  }
+});
+
+// Manual payment confirmation (for admin to confirm Uganda/Malawi payments)
+router.post('/confirm-payment/:reference', protect, async (req, res) => {
+  try {
+    const { reference } = req.params;
+    
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+    
+    const transaction = await Transaction.findOne({ reference });
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    if (transaction.status !== 'PROCESSING') {
+      return res.status(400).json({
+        success: false,
+        message: `Transaction cannot be confirmed. Current status: ${transaction.status}`
+      });
+    }
+    
+    const user = await User.findById(transaction.user);
+    const oldBalance = user.balance;
+    user.balance += transaction.amountInKES;
+    await user.save();
+    
+    transaction.status = 'COMPLETED';
+    transaction.processedAt = new Date();
+    transaction.metadata.confirmedBy = req.user._id;
+    transaction.metadata.confirmedAt = new Date().toISOString();
+    transaction.balance = {
+      before: oldBalance,
+      after: user.balance
+    };
+    await transaction.save();
+    
+    // Emit real-time balance update
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user-${user._id}`).emit('balance-update', {
+        newBalance: user.balance,
+        amount: transaction.amount,
+        currency: transaction.currency
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Payment confirmed successfully',
+      data: {
+        user: user.username,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        newBalance: user.balance
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error confirming payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
   }
 });
 
 // Check deposit status
 router.get('/check-deposit/:reference', protect, async (req, res) => {
-  console.log('🔍 [DEBUG] Check deposit status for reference:', req.params.reference);
   try {
     const { reference } = req.params;
     const transaction = await Transaction.findOne({ reference, user: req.user._id });
@@ -530,7 +616,7 @@ router.get('/check-deposit/:reference', protect, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('💥 [DEBUG] Error checking deposit:', error);
+    console.error('Error checking deposit:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
